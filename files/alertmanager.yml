@@ -1,0 +1,14 @@
+global:
+  slack_api_url: https://hooks.slack.com/services/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
+receivers:
+- name: default-receiver
+  slack_configs:
+  - channel: '#kubeslice-events-alerts'
+    send_resolved: true
+route:
+  group_interval: 5m
+  group_wait: 10s
+  receiver: default-receiver
+  repeat_interval: 5m
+templates:
+- /etc/alertmanager/*.tmpl

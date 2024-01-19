@@ -1,0 +1,201 @@
+---
+# tasks file for kubeslice-diagnosis
+
+
+## capturing controller-logs ##
+
+- name: capturing controller-logs
+  ignore_errors: yes
+  shell: kubectl --kubeconfig={{ clusters.controller.kubeconfig }} -n kubeslice-controller logs $(kubectl --kubeconfig={{ clusters.controller.kubeconfig }} get pods -n kubeslice-controller | awk '{print $1}' | grep -e "kubeslice-controller-manager") -c manager > diagnosis-debug-logs/controller-dump.log
+
+#List the helm chart used by setup###
+
+- name: Capturing Helm chart version details
+  ignore_errors: yes
+  shell: helm search repo {{ helm_repo_name }} > diagnosis-debug-logs/helm-chart-list.txt
+
+
+### CRDs, Secrets and Deployment details ###
+
+- name: Capturing kubeslice-controller-manager deployment details
+  ignore_errors: yes
+  shell: kubectl --kubeconfig={{ clusters.controller.kubeconfig }} -n kubeslice-controller get deployment kubeslice-controller-manager -o yaml > diagnosis-debug-logs/kubeslice-controller-deployment.yaml
+
+
+- name: Capturing secret details of kubeslice-controller Namespace
+  ignore_errors: yes
+  shell: kubectl --kubeconfig={{ clusters.controller.kubeconfig }} -n kubeslice-controller get secrets -o yaml > diagnosis-debug-logs/controller-secrets.yaml
+
+- name: Capturing secret details of project namespace
+  ignore_errors: yes
+  shell: kubectl --kubeconfig={{ clusters.controller.kubeconfig }} -n kubeslice-{{ clusters.controller.projectNamespace }} get secrets -o yaml > diagnosis-debug-logs/project-secrets.yaml
+
+
+##### Kubeslice-Controller CRDs ###
+
+- name: fetching Project Details
+  ignore_errors: yes
+  shell:  kubectl --kubeconfig={{ clusters.controller.kubeconfig }} -n kubeslice-controller get projects.controller.kubeslice.io -oyaml > diagnosis-debug-logs/project-details.yaml
+
+- name: fetching Cluster Details
+  ignore_errors: yes
+  shell:  kubectl --kubeconfig={{ clusters.controller.kubeconfig }} -n kubeslice-{{ clusters.controller.projectNamespace }} get clusters.controller.kubeslice.io -oyaml > diagnosis-debug-logs/cluster-details.yaml 
+
+- name: fetching SliceConfig Details
+  ignore_errors: yes
+  shell:  kubectl --kubeconfig={{ clusters.controller.kubeconfig }} -n kubeslice-{{ clusters.controller.projectNamespace }} get sliceconfigs.controller.kubeslice.io -oyaml > diagnosis-debug-logs/sliceConfig-details.yaml
+
+- name: fetching SliceQoSConfig  Details
+  ignore_errors: yes
+  shell:  kubectl --kubeconfig={{ clusters.controller.kubeconfig }} -n kubeslice-{{ clusters.controller.projectNamespace }} get sliceqosconfig.controller.kubeslice.io -oyaml > diagnosis-debug-logs/sliceqosconfig-details.yaml 
+
+- name: fetching SliceResourceQuotaConfig Details
+  ignore_errors: yes
+  shell:  kubectl --kubeconfig={{ clusters.controller.kubeconfig }} -n kubeslice-{{ clusters.controller.projectNamespace }} get sliceresourcequotaconfig.controller.kubeslice.io -oyaml > diagnosis-debug-logs/sliceresourcequotaconfig-details.yaml
+
+- name: fetching ServiceExportConfig Details
+  ignore_errors: yes
+  shell:  kubectl --kubeconfig={{ clusters.controller.kubeconfig }} -n kubeslice-{{ clusters.controller.projectNamespace }} get serviceexportconfig.controller.kubeslice.io -oyaml > diagnosis-debug-logs/serviceexportconfig-details.yaml
+
+- name: fetching workersliceconfig Details
+  ignore_errors: yes
+  shell:  kubectl --kubeconfig={{ clusters.controller.kubeconfig }} -n kubeslice-{{ clusters.controller.projectNamespace }} get workersliceconfig.worker.kubeslice.io -oyaml > diagnosis-debug-logs/workersliceconfig-details.yaml
+
+- name: fetching WorkerSliceGateway 
+  ignore_errors: yes
+  shell:  kubectl --kubeconfig={{ clusters.controller.kubeconfig }} -n kubeslice-{{ clusters.controller.projectNamespace }} get workerslicegateway.worker.kubeslice.io -oyaml > diagnosis-debug-logs/workerslicegateway-details.yaml
+
+- name: fetching WorkerServiceImport 
+  ignore_errors: yes
+  shell:  kubectl --kubeconfig={{ clusters.controller.kubeconfig }} -n kubeslice-{{ clusters.controller.projectNamespace }} get workerserviceimport.worker.kubeslice.io -oyaml > diagnosis-debug-logs/workerserviceimport-details.yaml
+
+- name: fetching controller nodes describe output
+  ignore_errors: yes
+  shell: kubectl --kubeconfig={{ clusters.controller.kubeconfig }} describe nodes > diagnosis-debug-logs/controller-node-describe.yaml
+
+##### Worker related logs and info ###
+
+- name: fetching kubeslice-worker helm chart values  
+  ignore_errors: yes
+  shell: helm --kubeconfig={{ item.kubeconfig }} get values kubeslice-worker -n kubeslice-system > diagnosis-debug-logs/{{ item.name }}-values.yaml
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[]
+
+- name: fetching kubeslice-worker helm chart values  
+  ignore_errors: yes
+  shell: helm --kubeconfig={{ item.kubeconfig }} get values kubeslice-worker -n kubeslice-system -a > diagnosis-debug-logs/{{ item.name }}-all-values.yaml
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[]
+
+
+- name: fetching kubeslice-operator pod describe output 
+  ignore_errors: yes
+  shell: kubectl --kubeconfig={{ item.kubeconfig }} -n kubeslice-system describe pod  $(kubectl --kubeconfig={{ item.kubeconfig }} get pods -n kubeslice-system | awk '{print $1}' | grep -e "kubeslice-operator") > diagnosis-debug-logs/{{ item.name }}-kubeslice-operator-describe-output
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[]
+
+- name: fetching kubeslice-operator pod logs 
+  ignore_errors: yes
+  shell: kubectl --kubeconfig={{ item.kubeconfig }} -n kubeslice-system logs $(kubectl --kubeconfig={{ item.kubeconfig }} get pods -n kubeslice-system | awk '{print $1}' | grep -e "kubeslice-operator") > diagnosis-debug-logs/{{ item.name }}-kubeslice-operator-pod.log  
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[]
+
+- name: fetching Worker nodes describe output
+  ignore_errors: yes
+  shell: kubectl --kubeconfig={{ item.kubeconfig }} describe nodes > diagnosis-debug-logs/{{ item.name }}-node-describe.yaml
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[]
+
+- name: fetching worker cluster ServiceExport details
+  ignore_errors: yes
+  shell: kubectl --kubeconfig={{ item.kubeconfig }} get serviceexport -A -oyaml  > diagnosis-debug-logs/{{ item.name }}-serviceexport.yaml  
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[]
+
+- name: fetching worker cluster ServiceImport details
+  ignore_errors: yes
+  shell: kubectl --kubeconfig={{ item.kubeconfig }} get serviceimport -A -oyaml  > diagnosis-debug-logs/{{ item.name }}-serviceimport.yaml  
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[]
+
+## iperf pod connectivty result 
+
+- debug:
+    msg:     
+    - '###################################################################'
+    - '#               fetching iperf pod connectivty result             #'
+    - '###################################################################'
+
+- no_log: true 
+  tags:
+  - iperf-test
+  ignore_errors: yes
+  with_nested:
+  - "{{ onboardAppsToSlices.iperfDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name 
+  - item.0.iperfClient == true
+  shell: kubectl get pods -n {{ item.0.applicationNs }} --kubeconfig="{{ item.1.kubeconfig }}" | awk '{print $1}' |  grep -i iperf-sleep
+  register: iperf_pod
+
+- name: executing command in iperf pod 
+  tags:
+  - iperf-test
+  ignore_errors: yes
+  register: iperf_connectivity_status
+  with_nested:
+  - "{{ onboardAppsToSlices.iperfDeployment }}"
+  - "{{ clusters.worker }}"
+  - "{{ iperf_pod.results }}"
+  loop_control:
+    label: 'iperf'
+  when: 
+  - item.0.name == item.2.item.0.name
+  - item.0.name == item.2.item.1.name
+  - item.0.applicationNs == item.2.item.0.applicationNs
+  - item.0.iperfClient == true
+  - item.0.name  ==  item.1.name
+  shell: kubectl --kubeconfig={{ item.1.kubeconfig }} exec -it {{ item.2.stdout }} -c iperf -n {{ item.0.applicationNs }} -- iperf -c iperf-server.{{ item.0.applicationNs }}.svc.slice.local -p 5201 -i 1 -b {{ iperf_testing_BW }};
+
+
+- name: Verifying Iperf pod connectivty between on worker clusters
+  tags:
+  - iperf-test
+  loop: "{{ iperf_connectivity_status.results }}"
+  ignore_errors: yes
+  loop_control:
+    label: 'iperf_connectivity_status'
+  when: 
+  - item.changed == true
+  debug:
+    msg: 
+    - iperf pod connectivty result in "{{ item.item.0.applicationNs }}" namespace in "{{ item.item.0.name }}" cluster -> 
+    - kubectl --kubeconfig={{ item.item.1.kubeconfig }} exec -it {{ item.item.2.stdout }} -c iperf -n {{ item.item.0.applicationNs }} -- iperf -c iperf-server.{{ item.item.0.applicationNs }}.svc.slice.local -p 5201 -i 1 -b {{ iperf_testing_BW }};    
+    - "{{ item.stdout_lines }}"
+
+- name: capturing Iperf pod connectivty result in diagnosis result
+  tags:
+  - iperf-test
+  loop: "{{ iperf_connectivity_status.results }}"
+  ignore_errors: yes
+  loop_control:
+    label: 'iperf_connectivity_status'
+  when: 
+  - item.changed == true
+  shell: |
+    rm -rf diagnosis-debug-logs/iperf-pod-connectivity-result
+    cat >> diagnosis-debug-logs/iperf-pod-connectivity-result << EOF
+    ___________________________________________________________________
+    iperf pod connectivty result in "{{ item.item.0.applicationNs }}" namespace in "{{ item.item.0.name }}" cluster -> 
+    "{{ item.stdout }}"
+    ____________________________________________________________________
+
+    EOF

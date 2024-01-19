@@ -1,0 +1,13 @@
+---
+collections:
+  - name: kubernetes.core
+    version: 2.3.1
+  - name: cloud.common
+    version: 2.1.2
+
+roles:
+  # Install a role from Ansible Galaxy.
+  - name: gantsign.helm
+    version: 2.10.0
+  - name: andrewrothstein.istio
+    version: v1.2.24

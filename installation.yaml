@@ -1,0 +1,42 @@
+---
+- name: Installation playbook
+  hosts: localhost
+  connection: local
+  vars_files:
+    - vars/install-vars.yaml
+
+  roles:
+###### input file validation check ######  
+     - pre-validation-check                #It will perform some pre-validation checks on you all-var input file#
+
+###### Helm Access ######
+     - helm-repo-access                    # It will Add helm chart repo in your local
+
+####### Opensource Charts ######           # If you are using opensource charts comment out below enterprise roles #
+     # - kubeslice-controller-oss              # This will deploy Controller and create project        
+     # - worker-registration-oss               # This will register workercluster with controller and genrate worker-secret file 
+     # - kubeslice-worker-oss                  # This will deploy istio,Isitod and Worker-operator Charts
+     # - openshift-deployement-patch         # This is patching for openshif related clusters
+     
+##### Enterprise Charts ######          # If you are using enterprise charts comment out above Opensource roles #
+     - kubeslice-controller-ent             # This will deploy Controller with UI and create project        
+     - worker-registration-ent              # This will register workercluster with controller and genrate worker-secret file 
+     - kubeslice-worker-ent                 # This will deploy istio,Isitod,prometheus and Worker-operator Charts
+     - openshift-deployement-patch          # This is patching for openshif related clusters
+
+###### Slice-config and App deployment ######    
+     - slice-config-installation            # It will Create Sliceconfig only
+     - onboarding-demo-application          # It will cover Application deployment (iperf,bookinfo,Obs,boutique,cockroach-db) 
+     - service-export-creation              # It will create serviceexport 
+     # - custom-application-deployment      # It will cover Custom Application deployemt using manifest file or helm chart deployement
+     # - bookinfo-load-generator            # It will use to generate load on bookinfo application 
+     
+#######  Logs and Monitoring #######
+     - kubeslice-diagnosis                  #It will capturing Log for debugging
+     # - kubeslice-monitoring               #It will deploy elasticsearch , fluent-bit , Kibana and prometheus on your defined cluster
+
+####### Kafka-zookeeper clusters ######
+     # - kafka-zookeeper-setup             #It will deploy kafka and zookeeper on all worker clusters             # Kubecost provides real-time cost visibility and insights for teams using Kubernetes
+
+###### Output Summary ######
+     - kubeslice-status-report              # This will generate Kubeslice output status summary and display on terminal

@@ -1,0 +1,10 @@
+groups:
+- name: kubeslice demo alert EKS
+  rules:
+  - alert: High Pod Memory EKS
+    annotations:
+      summary: High Memory Usage EKS
+    expr: sum(container_memory_usage_bytes) > 1
+    for: 1m
+    labels:
+      severity: EKS-CRITICAL

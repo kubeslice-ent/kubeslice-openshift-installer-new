@@ -1,0 +1,11 @@
+---
+- name: Installation playbook
+  hosts: localhost
+  connection: local
+  vars_files:
+    - vars/install-vars.yaml
+
+  roles:
+###### deploy distributed mongoDB spanning multiple K8s cluster using kubeslice ######
+     - mongodb-ops-manager      # It will MongoDB Enterprise Kubernetes Operator and Ops manager UI
+     #- mongodb-replicaset     # It will create a MongoDB replica set using the MongoDBMultiCRD

@@ -1,0 +1,130 @@
+---
+# tasks file for worker-Registertion-ent
+
+####  Registring worker cluster with controller ####
+
+- name: Feteching nodeIP for promethus endpoint for cluster registertion
+  when : item.nodeIp == None
+  ignore_errors: yes
+  tags: 
+  - worker-registertion
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[]
+  shell: kubectl --kubeconfig="{{ item.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: workernodeip
+
+- name: registring worker cluster with controller
+  when : 
+  - item.0.nodeIp == None
+  - item.0.name == item.1.item.name 
+  tags:
+  - worker-registertion
+  with_nested:
+  - "{{ clusters.worker }}"
+  - "{{ workernodeip.results }}"
+  loop_control:
+    label: 'workernodeip'
+  kubernetes.core.k8s:
+    kubeconfig: "{{ clusters.controller.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    state: present
+    namespace: kubeslice-{{ clusters.controller.projectNamespace }}
+    definition: |
+      apiVersion: controller.kubeslice.io/v1alpha1
+      kind: Cluster
+      metadata:
+        name: {{ item.0.name }}
+        namespace: kubeslice-{{ clusters.controller.projectNamespace }}
+      spec:
+        networkInterface: {{ item.0.networkInterface | default('eth0', true) }}
+        clusterProperty:
+          telemetry:
+            enabled: true
+            telemetryProvider: "prometheus"
+            endpoint: "http://{{ item.1.stdout }}:32700"
+
+- name: registring worker cluster with controller
+  when : item.nodeIp != None
+  tags:
+  - worker-registertion
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[]
+  kubernetes.core.k8s:
+    kubeconfig: "{{ clusters.controller.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    state: present
+    namespace: kubeslice-{{ clusters.controller.projectNamespace }}
+    definition: |
+      apiVersion: controller.kubeslice.io/v1alpha1
+      kind: Cluster
+      metadata:
+        name: {{ item.name }}
+        namespace: kubeslice-{{ clusters.controller.projectNamespace }}
+      spec:
+        networkInterface: {{ item.networkInterface | default('eth0', true) }}
+        nodeIP: {{ item.nodeIp }}
+        clusterProperty:
+          telemetry:
+            enabled: true
+            telemetryProvider: "prometheus"
+            endpoint: "http://{{ item.nodeIp }}:32700"
+
+
+- name: Checking registered clusters 
+  tags:
+  - worker-registertion
+  shell: "kubectl get clusters -n kubeslice-{{ clusters.controller.projectNamespace }} --kubeconfig={{ clusters.controller.kubeconfig }}" 
+  register: registered_clusters
+- tags:
+  - worker-registertion
+  debug: var=registered_clusters.stdout_lines
+
+#### Get secret values from controller ####
+
+
+#Getting worker cluster secret name and Run the script to get the Secrets of the Worker Clusters
+
+- name: getting worker cluster secret 
+  tags:
+  - worker-registertion
+  loop: "{{ clusters.worker }}"
+  shell: |
+    secret=$(kubectl get secrets -n kubeslice-{{ clusters.controller.projectNamespace }} --kubeconfig={{ clusters.controller.kubeconfig }} | grep kubeslice | grep {{ item.name }} | grep token | awk 'FNR == 1 {print$1}')
+    sh files/secrets-ent.sh $secret {{ item.name }} kubeslice-{{ clusters.controller.projectNamespace }} {{ clusters.controller.kubeconfig }} > files/{{ item.name }}-secret.yaml
+
+
+#########  Sometimes is not picking endpoints using  that secret.sh script ######
+
+#So adding encoded endpoint to secret files 
+
+- name: fetching controller Cluster endpoint 
+  tags:
+  - kubeslice-controller
+  kubernetes.core.k8s_cluster_info:
+    kubeconfig: "{{ clusters.controller.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+  register: controller_host
+- set_fact:
+    controller_endpoint: "{{ controller_host.connection.host  }}" 
+  tags:
+  - kubeslice-controller
+
+
+- name: encoding the endpoint
+  tags:
+  - worker-registertion
+  shell: echo -n "{{ clusters.controller.endpoint | default(controller_endpoint, true) }}" | base64 -w 0
+  register: encoded_endpoint
+
+
+- name: changing cluster endpoints entry in worker secret.yaml file
+  tags:
+  - worker-registertion
+  loop: "{{ clusters.worker }}"
+  lineinfile:
+      path: files/{{ item.name }}-secret.yaml
+      # insertafter: "namespace:"
+      regexp: 'endpoint:'
+      line: "  endpoint: {{encoded_endpoint.stdout}}"

@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iperf-sleep
+  labels:
+    app: iperf-sleep
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: iperf-sleep
+  template:
+    metadata:
+      labels:
+        app: iperf-sleep
+    spec:
+      containers:
+      - name: iperf
+        image: mlabbe/iperf
+        imagePullPolicy: Always
+        command: ["/bin/sleep", "3650d"]
+      - name: sidecar
+        image: nicolaka/netshoot
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sleep", "3650d"]
+        securityContext:
+          capabilities:
+            add: ["NET_ADMIN"]
+          allowPrivilegeEscalation: true
+          privileged: true

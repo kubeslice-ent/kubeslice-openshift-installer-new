@@ -1,0 +1,2504 @@
+---
+# tasks file for kubeslice-status-report
+
+- tags:
+  - status
+  debug:
+    msg:     
+    - '###################################################################'
+    - '#               kubernetes Cluster details                        #'
+    - '###################################################################'
+
+# controller 
+- kubernetes.core.k8s_cluster_info:
+    kubeconfig: "{{ clusters.controller.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+  register: controller_version
+  tags:
+  - status
+  ignore_errors: yes  
+- name: Validating Controller Cluster 
+  tags:
+  - status
+  ignore_errors: yes
+  debug: 
+    msg: 'The controller cluster k8s version is "{{ controller_version.version.server.kubernetes.gitVersion }}"'
+
+# - shell: "kubectl cluster-info --kubeconfig={{ clusters.controller.kubeconfig }}"
+#   register: clusterinfo
+# - name: controller cluster-info
+#   debug: 
+#     msg: 
+#     - controller cluster info ->
+#     - "{{clusterinfo.stdout_lines}}"
+
+- shell: "kubectl get nodes -o wide --kubeconfig={{ clusters.controller.kubeconfig }}"
+  tags:
+  - status
+  ignore_errors: yes
+  register: nodeinfo
+- name: Verifying Controller cluster node
+  tags:
+  - status
+  ignore_errors: yes
+  debug: 
+    msg: 
+    - Controller cluster node status ->
+    - "{{nodeinfo.stdout_lines}}"
+
+- shell: "kubectl get nodes -l kubeslice.io/node-type=gateway --kubeconfig={{ clusters.controller.kubeconfig }}"
+  tags:
+  - status
+  ignore_errors: yes
+  register: nodelabel
+- name: Verifying Controller node with the basis of gateway label
+  tags:
+  - status
+  ignore_errors: yes
+  debug: 
+    msg: 
+    - Nodes which are labeled by "kubeslice.io/node-type=gateway" in Controller cluster ->
+    - "{{nodelabel.stdout_lines}}"
+
+#Describing Controller nodes 
+- shell: "kubectl describe nodes --kubeconfig={{ clusters.controller.kubeconfig }}"
+  tags:
+  - status
+  when: " enable_debug == true "
+  ignore_errors: yes
+  register: nodeinfo
+- name: Describing Controller cluster node
+  tags:
+  - status
+  when: " enable_debug == true "
+  ignore_errors: yes
+  debug: 
+    msg: 
+    - Controller cluster node description ->
+    - "{{nodeinfo.stdout_lines}}"
+
+#worker 
+- no_log: true
+  tags:
+  - status
+  ignore_errors: yes
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[]
+  kubernetes.core.k8s_cluster_info:
+    kubeconfig: "{{ item.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+  register: worker_version
+- name: Validating worker Cluster 
+  tags:
+  - status
+  ignore_errors: yes
+  loop: "{{ worker_version.results }}"
+  loop_control:
+    label: 'worker_version'
+  debug: 
+    msg: 
+    - 'The {{item.item.name}} cluster k8s version is "{{ item.version.server.kubernetes.gitVersion }}"'
+
+# - shell: "kubectl cluster-info --kubeconfig={{ item.kubeconfig }}"
+#   no_log: true
+#   loop: "{{ clusters.worker }}"
+#   loop_control:
+#     index_var: item[] 
+#   register: clusterinfo
+# - name: Worker Cluster info
+#   loop: "{{ clusterinfo.results }}"
+#   loop_control:
+#     label: 'clusterinfo'
+#   debug: 
+#     msg: 
+#     - '{{item.item.name}} cluster info ->'
+#     - "{{item.stdout_lines}}"
+
+- no_log: true
+  tags:
+  - status
+  ignore_errors: yes
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[] 
+  shell: kubectl get nodes -o wide --kubeconfig="{{ item.kubeconfig }}"
+  register: nodeinfo
+- name: Verifying Worker cluster node
+  tags:
+  - status
+  ignore_errors: yes
+  debug:
+    msg: 
+    - '{{ item.item.name }} cluster node status ->'
+    - "{{ item.stdout_lines }}"
+  loop: "{{ nodeinfo.results }}"
+  loop_control:
+    label: 'nodeinfo'
+
+- no_log: true
+  tags:
+  - status
+  ignore_errors: yes
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[] 
+  shell: kubectl get nodes -l kubeslice.io/node-type=gateway --kubeconfig="{{ item.kubeconfig }}"
+  register: nodelabel
+- name: Verifying worker node with the basis of gateway label
+  tags:
+  - status
+  ignore_errors: yes
+  debug:
+    msg: 
+    - 'Nodes which are labeled by "kubeslice.io/node-type=gateway" in {{ item.item.name }} cluster ->'
+    - "{{ item.stdout_lines }}"
+  loop: "{{ nodelabel.results }}"
+  loop_control:
+    label: 'nodelabel'
+
+#Descripition of worker clusters
+- no_log: true
+  tags:
+  - status
+  ignore_errors: yes
+  when: " enable_debug == true "
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[] 
+  shell: kubectl describe nodes --kubeconfig="{{ item.kubeconfig }}"
+  register: nodeinfo
+- name: describing Worker cluster node
+  tags:
+  - status
+  when: " enable_debug == true "
+  ignore_errors: yes
+  debug:
+    msg: 
+    - '{{ item.item.name }} cluster node description ->'
+    - "{{ item.stdout_lines }}"
+  loop: "{{ nodeinfo.results }}"
+  loop_control:
+    label: 'nodeinfo'
+
+  
+# OUTPUT OF CONTROLLER CLUSTER 
+- tags:
+  - status
+  debug:
+    msg:     
+    - '###################################################################'
+    - '#               Controller Cluster details                        #'
+    - '###################################################################'
+
+- shell: "helm list -A --kubeconfig={{ clusters.controller.kubeconfig }}"
+  tags:
+  - status
+  ignore_errors: yes
+  register: controller_helm_chart
+- name: Helm charts installed on controller cluster
+  tags:
+  - status
+  ignore_errors: yes  
+  debug: 
+    msg: 
+    - Helm charts installed on controller cluster ->
+    - "{{controller_helm_chart.stdout_lines}}"
+
+- shell: kubectl --kubeconfig="{{ clusters.controller.kubeconfig }}" get secret kubeslice-license-file -o jsonpath="{.data.license-id}" -n kubeslice-controller | base64 --decode
+  tags:
+  - status
+  ignore_errors: yes
+  register: controller_license_secret
+- name: Retrieve license from Kubernetes secret
+  tags:
+  - status
+  ignore_errors: yes  
+  debug: 
+    msg: 
+    - Verifiying license from Kubernetes secret from controller cluster ->
+    - license-id -> "{{controller_license_secret.stdout_lines}}"
+
+- shell: "helm --kubeconfig={{ clusters.controller.kubeconfig }} get values kubeslice-controller -n kubeslice-controller -o table"
+  tags:
+  - status
+  ignore_errors: yes
+  register: controller_helm_chart_values
+- name: Helm charts values provided for kubeslice-controller in controller cluster
+  tags:
+  - status
+  ignore_errors: yes  
+  debug: 
+    msg: 
+    - 'Kubeslice-controller chart values in controller cluster ->'
+    - "{{controller_helm_chart_values.stdout_lines}}"
+
+- shell: "helm --kubeconfig={{ clusters.controller.kubeconfig }} get values kubeslice-ui -n kubeslice-controller -o table"
+  tags:
+  - status
+  ignore_errors: yes
+  register: kubeslice_ui_helm_chart_values
+- name: Helm charts values provided for kubeslice-ui in controller cluster
+  tags:
+  - status
+  ignore_errors: yes  
+  debug: 
+    msg: 
+    - 'Kubeslice-UI chart values in controller cluster ->'
+    - "{{kubeslice_ui_helm_chart_values.stdout_lines}}"
+
+- shell: "kubectl get crd --kubeconfig={{ clusters.controller.kubeconfig }} | grep -i kubeslice "
+  tags:
+  - status
+  ignore_errors: yes
+  register: Controller_CRD
+- name: List of CRD's created in Controller Cluster
+  tags:
+  - status
+  ignore_errors: yes 
+  debug: 
+    msg: 
+    - List of CRD's created in Controller Cluster  ->
+    - "{{Controller_CRD.stdout_lines}}"
+
+- shell: "kubectl get pods -n cert-manager --kubeconfig={{ clusters.controller.kubeconfig }}"
+  tags:
+  - status
+  ignore_errors: yes
+  register: certmanager_pod
+- name: Verifying cert-manager status
+  tags:
+  - status
+  ignore_errors: yes
+  debug: 
+    msg: 
+    - Controller cert-manager status ->
+    - "{{certmanager_pod.stdout_lines}}"
+
+- shell: "kubectl get pods -n kubeslice-controller --kubeconfig={{ clusters.controller.kubeconfig }}"
+  tags:
+  - status
+  ignore_errors: yes
+  register: controller_pod
+- name: Verifying controller pods status
+  tags:
+  - status
+  ignore_errors: yes
+  debug: 
+    msg: 
+    - Controller pod status ->
+    - "{{controller_pod.stdout_lines}}"
+
+#describe object in Kubeslice-controller namespace
+- no_log: true
+  when: " enable_debug == true "
+  tags:
+  - status
+  ignore_errors: yes
+  shell: kubectl describe all -n kubeslice-controller --kubeconfig="{{ clusters.controller.kubeconfig }}"
+  register: controller_pod_output
+- name: Verifying all objects from kubeslice-controller namespace
+  when: " enable_debug == true "
+  tags:
+  - status
+  ignore_errors: yes
+  debug:
+    msg: 
+    - 'all objects from kubeslice-controller namespace in controller cluster  ->'
+    - "{{ controller_pod_output.stdout_lines }}"
+
+
+- shell: "kubectl get project -n kubeslice-controller --kubeconfig={{ clusters.controller.kubeconfig }}"
+  tags:
+  - status
+  register: projects
+  ignore_errors: yes  
+- name: Verifying projects in kubeslice-controller namespace
+  tags:
+  - status
+  ignore_errors: yes
+  debug: 
+    msg: 
+    - Projects created in Kubeslice-controller namespace ->
+    - "{{projects.stdout_lines}}"
+
+- shell: "kubectl get sa -n kubeslice-{{ clusters.controller.projectNamespace }} --kubeconfig={{ clusters.controller.kubeconfig }}"
+  tags:
+  - status
+  ignore_errors: yes
+  register: project_serviceaccount
+- name: Verifying Serviceaccounts created by project-namespace
+  tags:
+  - status
+  ignore_errors: yes 
+  debug: 
+    msg: 
+    - Serviceaccounts created by project-namespace ->
+    - "{{project_serviceaccount.stdout_lines}}"
+
+- shell: "kubectl get clusters -n kubeslice-{{ clusters.controller.projectNamespace }} --kubeconfig={{ clusters.controller.kubeconfig }}" 
+  tags:
+  - status
+  ignore_errors: yes
+  register: registered_clusters
+- name: Verifying registered clusters 
+  tags:
+  - status
+  ignore_errors: yes
+  debug: 
+    msg: 
+    - Registered clusters with controller cluster ->
+    - "{{registered_clusters.stdout_lines}}"
+
+### Verifying sliceconfig
+
+- shell: "kubectl get sliceconfig -n kubeslice-{{ clusters.controller.projectNamespace }} --kubeconfig={{ clusters.controller.kubeconfig }}" 
+  tags:
+  - status
+  ignore_errors: yes
+  register: sliceconfig
+- name: Verifying sliceconfig in controller status
+  tags:
+  - status
+  ignore_errors: yes
+  debug: 
+    msg: 
+    - sliceconfig created in controller cluster ->
+    - "{{sliceconfig.stdout_lines}}"
+
+- tags:
+  - status
+  debug:
+    msg:     
+    - '###################################################################'
+    - '#                 Worker Cluster details                          #'
+    - '###################################################################'
+
+
+## Output of Worker Cluster 
+
+#helm charts
+- shell: "helm list -A --kubeconfig={{ item.kubeconfig }}"
+  tags:
+  - status
+  ignore_errors: yes
+  no_log: true
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[] 
+  register: worker_helm_chart
+- name: Helm charts installed on worker cluster
+  tags:
+  - status
+  ignore_errors: yes
+  loop: "{{ worker_helm_chart.results }}"
+  loop_control:
+    label: 'worker_helm_chart'
+  debug: 
+    msg: 
+    - 'Helm charts installed on {{item.item.name}} cluster ->'
+    - "{{item.stdout_lines}}"
+
+- shell: "helm --kubeconfig={{ item.kubeconfig }} get values kubeslice-worker -n kubeslice-system -o table "
+  tags:
+  - status
+  ignore_errors: yes
+  no_log: true
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[] 
+  register: worker_helm_chart_values
+- name: Helm charts values provided for kubeslice-worker in worker cluster
+  tags:
+  - status
+  ignore_errors: yes
+  loop: "{{ worker_helm_chart_values.results }}"
+  loop_control:
+    label: 'worker_helm_chart_values'
+  debug: 
+    msg: 
+    - 'Kubeslice-worker chart values in {{item.item.name}} cluster ->'
+    - "{{item.stdout_lines}}"
+
+#CRD
+- no_log: true
+  tags:
+  - status
+  ignore_errors: yes
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[] 
+  shell: "kubectl get crd --kubeconfig={{ item.kubeconfig }} | grep -i kubeslice "
+  register: worker_CRD
+- name: List of CRD's created in worker cluster
+  tags:
+  - status
+  ignore_errors: yes
+  debug:
+    msg: 
+    - List of CRD's created in {{ item.item.name }} cluster ->
+    - "{{ item.stdout_lines }}"
+  loop: "{{ worker_CRD.results }}"
+  loop_control:
+    label: 'worker_CRD'
+
+#kubeslice-system pod status
+- no_log: true
+  tags:
+  - status
+  ignore_errors: yes
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[] 
+  shell: kubectl get pods -n kubeslice-system --kubeconfig="{{ item.kubeconfig }}"
+  register: worker_pod_output
+- name: Verifying kubeslice-worker pods status
+  tags:
+  - status
+  ignore_errors: yes
+  debug:
+    msg: 
+    - 'pods status in Kubeslice-system Namespace in {{ item.item.name }}  ->'
+    - "{{ item.stdout_lines }}"
+  loop: "{{ worker_pod_output.results }}"
+  loop_control:
+    label: 'worker_pod_output'
+
+#describe object in Kubeslice-system namespace
+- no_log: true
+  tags:
+  - status
+  when: " enable_debug == true "
+  ignore_errors: yes
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[] 
+  shell: kubectl describe all -n kubeslice-system --kubeconfig="{{ item.kubeconfig }}"
+  register: worker_pod_output
+- name: Verifying all objects from kubeslice-system namespace
+  tags:
+  - status
+  when: " enable_debug == true "
+  ignore_errors: yes
+  debug:
+    msg: 
+    - 'all objects from kubeslice-system namespace in {{ item.item.name }}  ->'
+    - "{{ item.stdout_lines }}"
+  loop: "{{ worker_pod_output.results }}"
+  loop_control:
+    label: 'worker_pod_output'    
+
+#istio-system pod status
+- no_log: true
+  tags:
+  - status
+  ignore_errors: yes
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[] 
+  shell: kubectl get pods -n istio-system --kubeconfig="{{ item.kubeconfig }}"
+  register: istio_pod_output
+- name: Verifying istio pods status
+  tags:
+  - status
+  ignore_errors: yes
+  debug:
+    msg: 
+    - 'pods status in istio-system Namespace in {{ item.item.name }}  ->'
+    - "{{ item.stdout_lines }}"
+  loop: "{{ istio_pod_output.results }}"
+  loop_control:
+    label: 'istio_pod_output'
+
+- tags:
+  - serviceexport
+  debug:
+    msg:     
+    - '###################################################################'
+    - '#           Service Export and import status                    #'
+    - '###################################################################'
+
+## Service_export
+
+- no_log: true  
+  tags:
+  - serviceexport
+  ignore_errors: yes
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[] 
+  shell: kubectl get serviceexport -A --kubeconfig="{{ item.kubeconfig }}"
+  register: service_export
+- name: Verifying all serviceexport on worker cluster
+  tags:
+  - serviceexport
+  ignore_errors: yes
+  debug:
+    msg: 
+    - 'Serviceexport created in {{ item.item.name }} cluster ->' 
+    - "{{ item.stdout_lines }}"
+  loop: "{{ service_export.results }}"
+  loop_control:
+    label: 'service_export'
+
+## Service_import
+
+- no_log: true
+  tags:
+  - serviceexport
+  ignore_errors: yes
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[] 
+  shell: kubectl get serviceimport -A --kubeconfig="{{ item.kubeconfig }}"
+  register: service_import
+- name: Verifying all serviceimport on worker cluster
+  tags:
+  - serviceexport
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Serviceimport created in {{ item.item.name }} cluster ->' 
+    - "{{ item.stdout_lines }}"
+  loop: "{{ service_import.results }}"
+  loop_control:
+    label: 'service_import'
+
+## DNS NAME 
+
+- no_log: true
+  tags:
+  - serviceexport
+  ignore_errors: yes
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  with_nested:
+  - "{{ serviceExport }}"
+  - "{{ clusters.worker }}"
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" describe serviceimport {{ item.0.name }} -n {{ item.0.applicationNs }} | grep "Dns Name:" 
+  register: service_import_DNS
+- name: Verifying all serviceimport DNS name on worker cluster
+  tags:
+  - serviceexport
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'The DNS name of "{{ item.item.0.name }}" serviceimport in {{ item.item.0.applicationNs }} namespace in {{ item.item.1.name }} is ->' 
+    - "{{ item.stdout_lines }}"
+  loop: "{{ service_import_DNS.results }}"
+  loop_control:
+    label: 'service_import_DNS'
+  when: item.changed == true
+
+- tags:
+  - demoapp
+  debug:
+    msg:     
+    - '###################################################################'
+    - '#           Demo Application deployment status                    #'
+    - '###################################################################'
+
+## Iperf App deployment status
+
+- no_log: true 
+  tags:
+  - iperf
+  ignore_errors: yes
+  with_nested:
+  - "{{ onboardAppsToSlices.iperfDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name 
+  shell: kubectl get pods -n {{ item.0.applicationNs }} --kubeconfig="{{ item.1.kubeconfig }}"
+  register: appdeployment
+- name: Verifying iperf application status on worker cluster
+  tags:
+  - iperf
+  ignore_errors: yes
+  debug:
+    msg: 
+    - 'Iperf App deployed in {{ item.item.0.name }} cluster in {{ item.item.0.applicationNs }} namespace ->' 
+    - "{{ item.stdout_lines }}"
+  loop: "{{ appdeployment.results }}"
+  loop_control:
+    label: 'appdeployment'
+  when: item.changed == true
+
+#Describe iperf pod 
+- no_log: true 
+  tags:
+  - iperf
+  ignore_errors: yes
+  with_nested:
+  - "{{ onboardAppsToSlices.iperfDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name 
+  - "enable_debug == true"
+  shell: kubectl describe all -n {{ item.0.applicationNs }} --kubeconfig="{{ item.1.kubeconfig }}"
+  register: appdeployment
+- name: Verifying iperf application status on worker cluster
+  tags:
+  - iperf
+  ignore_errors: yes
+  debug:
+    msg: 
+    - 'Iperf App deployed in {{ item.item.0.name }} cluster in {{ item.item.0.applicationNs }} namespace ->' 
+    - "{{ item.stdout_lines }}"
+  loop: "{{ appdeployment.results }}"
+  loop_control:
+    label: 'appdeployment'
+  when: 
+  - item.changed == true
+  - "enable_debug == true"
+
+## iperf pod connectivty result 
+
+- no_log: true 
+  tags:
+  - iperf
+  - iperf-test
+  ignore_errors: yes
+  with_nested:
+  - "{{ onboardAppsToSlices.iperfDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name 
+  - item.0.iperfClient == true
+  shell: kubectl get pods -n {{ item.0.applicationNs }} --kubeconfig="{{ item.1.kubeconfig }}" | awk '{print $1}' |  grep -i iperf-sleep
+  register: iperf_pod
+
+- name: executing command in iperf pod 
+  tags:
+  - iperf
+  - iperf-test
+  ignore_errors: yes
+  register: iperf_connectivity_status
+  with_nested:
+  - "{{ onboardAppsToSlices.iperfDeployment }}"
+  - "{{ clusters.worker }}"
+  - "{{ iperf_pod.results }}"
+  loop_control:
+    label: 'iperf'
+  when: 
+  - item.0.name == item.2.item.0.name
+  - item.0.name == item.2.item.1.name
+  - item.0.applicationNs == item.2.item.0.applicationNs
+  - item.0.iperfClient == true
+  - item.0.name  ==  item.1.name
+  shell: kubectl --kubeconfig={{ item.1.kubeconfig }} exec -it {{ item.2.stdout }} -c iperf -n {{ item.0.applicationNs }} -- iperf -c iperf-server.{{ item.0.applicationNs }}.svc.slice.local -p 5201 -i 1 -b {{ iperf_testing_BW }};
+
+
+- name: Verifying Iperf pod connectivty between on worker clusters
+  tags:
+  - iperf
+  - iperf-test
+  loop: "{{ iperf_connectivity_status.results }}"
+  ignore_errors: yes
+  loop_control:
+    label: 'iperf_connectivity_status'
+  when: 
+  - item.changed == true
+  debug:
+    msg: 
+    - iperf pod connectivty result in "{{ item.item.0.applicationNs }}" namespace in "{{ item.item.0.name }}" cluster -> 
+    - kubectl --kubeconfig={{ item.item.1.kubeconfig }} exec -it {{ item.item.2.stdout }} -c iperf -n {{ item.item.0.applicationNs }} -- iperf -c iperf-server.{{ item.item.0.applicationNs }}.svc.slice.local -p 5201 -i 1 -b {{ iperf_testing_BW }};
+    - "{{ item.stdout_lines }}"
+
+
+## Bookinfo deployment status
+
+- no_log: true
+  tags:
+  - bookinfo
+  ignore_errors: yes
+  with_nested:
+  - "{{ onboardAppsToSlices.bookinfoDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name 
+  shell: kubectl get pods -n {{ item.0.applicationNs }} --kubeconfig="{{ item.1.kubeconfig }}"
+  register: appdeployment
+- name: Verifying bookinfo application status on worker cluster
+  tags:
+  - bookinfo
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Bookinfo App deployed in {{ item.item.0.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ appdeployment.results }}"
+  loop_control:
+    label: 'appdeployment'
+  when: item.changed == true
+
+#Describe bookinfo 
+- no_log: true
+  tags:
+  - bookinfo
+  ignore_errors: yes
+  with_nested:
+  - "{{ onboardAppsToSlices.bookinfoDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name 
+  - "enable_debug == true"
+  shell: kubectl describe all -n {{ item.0.applicationNs }} --kubeconfig="{{ item.1.kubeconfig }}"
+  register: appdeployment
+- name: Verifying bookinfo application status on worker cluster
+  tags:
+  - bookinfo
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Bookinfo App deployed in {{ item.item.0.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ appdeployment.results }}"
+  loop_control:
+    label: 'appdeployment'
+  when: 
+  - item.changed == true
+  - "enable_debug == true"
+
+## obs deployment status
+
+- no_log: true
+  tags:
+  - obs
+  ignore_errors: yes
+  with_nested:
+  - "{{ onboardAppsToSlices.obsDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name 
+  shell: kubectl get pods -n {{ item.0.applicationNs }} --kubeconfig="{{ item.1.kubeconfig }}"
+  register: appdeployment
+- name: Verifying obs application status on worker cluster
+  tags:
+  - obs
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'obs App deployed in {{ item.item.0.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ appdeployment.results }}"
+  loop_control:
+    label: 'appdeployment'
+  when: item.changed == true  
+
+#Describe obs pod
+- no_log: true
+  tags:
+  - obs
+  ignore_errors: yes
+  with_nested:
+  - "{{ onboardAppsToSlices.obsDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name 
+  - "enable_debug == true"
+  shell: kubectl describe all -n {{ item.0.applicationNs }} --kubeconfig="{{ item.1.kubeconfig }}"
+  register: appdeployment
+- name: Verifying obs application status on worker cluster
+  tags:
+  - obs
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'obs App deployed in {{ item.item.0.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ appdeployment.results }}"
+  loop_control:
+    label: 'appdeployment'
+  when: 
+  - item.changed == true
+  - "enable_debug == true"
+
+## boutique deployment status
+
+- no_log: true
+  tags:
+  - boutique
+  ignore_errors: yes
+  with_nested:
+  - "{{ onboardAppsToSlices.boutiqueDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name 
+  shell: kubectl get pods -n {{ item.0.applicationNs }} --kubeconfig="{{ item.1.kubeconfig }}"
+  register: appdeployment
+- name: Verifying boutique application status on worker cluster
+  tags:
+  - boutique
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'boutique App deployed in {{ item.item.0.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ appdeployment.results }}"
+  loop_control:
+    label: 'appdeployment'
+  when: item.changed == true 
+
+#Describe boutique pod
+- no_log: true
+  tags:
+  - boutique
+  ignore_errors: yes
+  with_nested:
+  - "{{ onboardAppsToSlices.boutiqueDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name 
+  - "enable_debug == true"
+  shell: kubectl describe all -n {{ item.0.applicationNs }} --kubeconfig="{{ item.1.kubeconfig }}"
+  register: appdeployment
+- name: Verifying boutique application status on worker cluster
+  tags:
+  - boutique
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'boutique App deployed in {{ item.item.0.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ appdeployment.results }}"
+  loop_control:
+    label: 'appdeployment'
+  when:
+  - item.changed == true 
+  - "enable_debug == true"
+
+## cockroachdb deployment status
+
+- no_log: true
+  tags:
+  - cockroachdb
+  ignore_errors: yes
+  with_nested:
+  - "{{ onboardAppsToSlices.cockroachDBDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name 
+  shell: kubectl get pods -n {{ item.0.applicationNs }} --kubeconfig="{{ item.1.kubeconfig }}"
+  register: appdeployment
+- name: Verifying cockroachDB application status on worker cluster
+  tags:
+  - cockroachdb
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'cockroachDB App deployed in {{ item.item.0.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ appdeployment.results }}"
+  loop_control:
+    label: 'appdeployment'
+  when: item.changed == true  
+
+#Describe cockroachdb pod
+- no_log: true
+  tags:
+  - cockroachdb
+  ignore_errors: yes
+  with_nested:
+  - "{{ onboardAppsToSlices.cockroachDBDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name 
+  - "enable_debug == true"
+  shell: kubectl describe all -n {{ item.0.applicationNs }} --kubeconfig="{{ item.1.kubeconfig }}"
+  register: appdeployment
+- name: Verifying cockroachDB application status on worker cluster
+  tags:
+  - cockroachdb
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'cockroachDB App deployed in {{ item.item.0.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ appdeployment.results }}"
+  loop_control:
+    label: 'appdeployment'
+  when: 
+  - item.changed == true  
+  - "enable_debug == true"
+
+## mushop deployment status
+- no_log: true
+  tags:
+  - mushop
+  ignore_errors: yes
+  with_nested:
+  - "{{ onboardAppsToSlices.mushopDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name 
+  shell: kubectl get pods -n {{ item.0.applicationNs }} --kubeconfig="{{ item.1.kubeconfig }}"
+  register: appdeployment
+- name: Verifying mushop application status on worker cluster
+  tags:
+  - mushop
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Mushop App deployed in {{ item.item.0.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ appdeployment.results }}"
+  loop_control:
+    label: 'appdeployment'
+  when: item.changed == true  
+
+#Describe mushop pod
+- no_log: true
+  tags:
+  - mushop
+  ignore_errors: yes
+  with_nested:
+  - "{{ onboardAppsToSlices.mushopDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name 
+  - "enable_debug == true"
+  shell: kubectl describe all -n {{ item.0.applicationNs }} --kubeconfig="{{ item.1.kubeconfig }}"
+  register: appdeployment
+- name: Verifying mushop application status on worker cluster
+  tags:
+  - mushop
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'mushop App deployed in {{ item.item.0.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ appdeployment.results }}"
+  loop_control:
+    label: 'appdeployment'
+  when: 
+  - item.changed == true  
+  - "enable_debug == true"
+
+
+- shell: "kubectl get pods -n kafka --kubeconfig={{ item.kubeconfig }}"
+  tags:
+  - kafka
+  ignore_errors: yes
+  # no_log: true
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[] 
+  register: kafka_pods
+
+- name: Kafka App deployed in worker cluster
+  tags:
+  - kafka
+  ignore_errors: yes
+  loop: "{{ kafka_pods.results }}"
+  loop_control:
+    label: 'kafka_pods'
+  debug: 
+    msg: 
+    - 'Kafka App deployed in {{item.item.name}} cluster ->'
+    - "{{item.stdout_lines}}"
+
+- debug:
+    msg:     
+    - '###################################################################'
+    - '#           Custom Application deployment status                 #'
+    - '###################################################################'
+
+#Custom App Deploy pod status 
+## status of pods of controller using manifest
+- no_log: true
+  ignore_errors: yes
+  loop: "{{ customAppDeployment.usingManifestDeployement }}"
+  loop_control:
+    index_var: item[] 
+  when: item.name  ==  "controller" 
+  shell: kubectl get pods -n {{ item.applicationNs }} --kubeconfig="{{ clusters.controller.kubeconfig }}" 
+  register: appdeployment
+- name: Verifying custom application pod status on controller cluster
+  when: item.name  ==  "controller" 
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Custom App deployed in {{ item.item.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ appdeployment.results }}"
+  loop_control:
+    label: 'appdeployment'
+  when: item.changed == true 
+
+## status of pods of worker using manifest
+- no_log: true
+  ignore_errors: yes
+  with_nested:
+  - "{{ customAppDeployment.usingManifestDeployement }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name 
+  shell: kubectl get pods -n {{ item.0.applicationNs }} --kubeconfig="{{ item.1.kubeconfig }}"
+  register: appdeployment
+- name: Verifying custom application pod status on worker cluster
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Custom App deployed in {{ item.item.0.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ appdeployment.results }}"
+  loop_control:
+    label: 'appdeployment'
+  when: item.changed == true 
+
+## status of pods of controller using helm deployment
+- no_log: true
+  ignore_errors: yes
+  loop: "{{ customAppDeployment.usingHelmchartsDeployment }}"
+  loop_control:
+    index_var: item[] 
+  when: item.name  ==  "controller" 
+  shell: kubectl get pods -n {{ item.applicationNs }} --kubeconfig="{{ clusters.controller.kubeconfig }}" 
+  register: appdeployment
+- name: Verifying custom application pod status on controller cluster
+  when: item.name  ==  "controller" 
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Custom App deployed in {{ item.item.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ appdeployment.results }}"
+  loop_control:
+    label: 'appdeployment'
+  when: item.changed == true 
+
+## status of pods using helm deployment
+- no_log: true
+  ignore_errors: yes
+  with_nested:
+  - "{{ customAppDeployment.usingHelmchartsDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name 
+  shell: kubectl get pods -n {{ item.0.applicationNs }} --kubeconfig="{{ item.1.kubeconfig }}"
+  register: appdeployment
+- name: Verifying custom application pod status on worker cluster
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Custom App deployed in {{ item.item.0.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ appdeployment.results }}"
+  loop_control:
+    label: 'appdeployment'
+  when: item.changed == true  
+
+### Monitoring cluster details ##
+
+- tags: 
+  - monitoring
+  debug:
+    msg:     
+    - '###################################################################'
+    - '#                 Monitoring Cluster details                      #'
+    - '###################################################################'
+
+# elasticsearch for controller
+- no_log: true
+  tags: 
+  - monitoring
+  ignore_errors: yes
+  loop: "{{ monitoring_cluster.elasticsearch }}"
+  loop_control:
+    index_var: item[]
+  when: item.workerName  ==  "controller"
+  shell: kubectl get pods -n {{ item.namespace }} --kubeconfig="{{ clusters.controller.kubeconfig }}" | grep -i elasticsearch
+  register: Elasticsearch_pod
+- name: List of Elasticsearch pod deployed on monitoring clusters
+  tags: 
+  - monitoring
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Verifying elasticsearch pod status in {{ item.item.namespace }} namespace in Controller cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ Elasticsearch_pod.results }}"
+  loop_control:
+    label: 'Elasticsearch_pod'
+  when: item.changed == true
+
+## elasticsearch endpoint for controller
+- no_log: true 
+  ignore_errors: yes
+  tags: 
+  - monitoring
+  loop: "{{ monitoring_cluster.elasticsearch }}"
+  loop_control:
+    index_var: item[]
+  when: item.workerName  ==  "controller"
+  shell: kubectl --kubeconfig="{{ clusters.controller.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: nodeip
+- name: fetching elasticsearch endpoint
+  tags: 
+  - monitoring
+  ignore_errors: yes
+  register: workernodeip
+  loop: "{{ nodeip.results }}"
+  loop_control:
+    label: 'nodeip'
+  when: 
+    - item.item.workerName  ==  "controller"
+  debug:
+    msg:
+    - elasticsearch endpoint of "{{ item.item.name }}" in "{{ item.item.namespace }}" namespace in controller cluster is ->
+    - http://{{ item.stdout }}:{{ item.item.nodePort }}
+
+# elasticsearch for worker
+- no_log: true
+  tags: 
+  - monitoring
+  ignore_errors: yes
+  with_nested:
+  - "{{ monitoring_cluster.elasticsearch }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  shell: kubectl get pods -n {{ item.0.namespace }} --kubeconfig="{{ item.1.kubeconfig }}" | grep -i elasticsearch
+  register: Elasticsearch_pod
+- name: List of Elasticsearch pod deployed on monitoring clusters
+  tags: 
+  - monitoring
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Verifying elasticsearch pod status in {{ item.item.0.namespace }} namespace in {{ item.item.1.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ Elasticsearch_pod.results }}"
+  loop_control:
+    label: 'Elasticsearch_pod'
+  when: item.changed == true
+
+## elasticsearch endpoint for worker
+- no_log: true 
+  ignore_errors: yes
+  tags: 
+  - monitoring
+  with_nested:
+  - "{{ monitoring_cluster.elasticsearch }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: nodeip
+- name: fetching elasticsearch endpoint
+  tags: 
+  - monitoring
+  ignore_errors: yes
+  register: workernodeip
+  with_nested:
+  - "{{ monitoring_cluster.elasticsearch }}"
+  - "{{ clusters.worker }}"
+  - "{{ nodeip.results }}"
+  loop_control:
+    label: 'nodeip'
+  when: 
+  - item.0.workerName  ==  item.1.name
+  - item.0.workerName  ==  item.2.item.0.workerName
+  - item.0.name  ==  item.2.item.0.name
+  - item.2.item.0.workerName == item.2.item.1.name
+  debug:
+    msg:
+    - elasticsearch endpoint of "{{ item.0.name }}" in "{{ item.0.namespace }}" namespace in "{{ item.0.workerName }}" cluster is ->
+    - http://{{ item.2.stdout }}:{{ item.0.nodePort }}
+
+# Fluent-bit for controller
+- no_log: true
+  ignore_errors: yes
+  tags: 
+  - monitoring
+  loop: "{{ monitoring_cluster.fluent_bit }}"
+  loop_control:
+    index_var: item[]
+  when: item.workerName  ==  "controller"
+  shell: kubectl get pods -n {{ item.namespace }} --kubeconfig={{ clusters.controller.kubeconfig }} | grep -i fluent
+  register: fluent_bit
+- name: List of fluent_bit pod deployed on monitoring clusters
+  tags: 
+  - monitoring
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Verifying fluent_bit pod status in {{ item.item.namespace }} namespace in controller cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ fluent_bit.results }}"
+  loop_control:
+    label: 'fluent_bit'
+  when: item.changed == true
+
+# Fluent-bit For Worker
+- no_log: true
+  ignore_errors: yes
+  tags: 
+  - monitoring
+  with_nested:
+  - "{{ monitoring_cluster.fluent_bit }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  shell: kubectl get pods -n {{ item.0.namespace }} --kubeconfig="{{ item.1.kubeconfig }}" | grep -i fluent
+  register: fluent_bit
+- name: List of fluent_bit pod deployed on monitoring clusters
+  tags: 
+  - monitoring
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Verifying fluent_bit pod status in {{ item.item.0.namespace }} namespace in {{ item.item.1.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ fluent_bit.results }}"
+  loop_control:
+    label: 'fluent_bit'
+  when: item.changed == true
+
+# kibana for controller
+- no_log: true
+  tags: 
+  - monitoring
+  ignore_errors: yes
+  loop: "{{ monitoring_cluster.kibana }}"
+  loop_control:
+    index_var: item[]
+  when: item.workerName  ==  "controller"
+  shell: kubectl get pods -n {{ item.namespace }} --kubeconfig={{ clusters.controller.kubeconfig }} | grep -i kibana
+  register: kibana
+- name: List of kibana pod deployed on monitoring clusters
+  tags: 
+  - monitoring
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Verifying kibana pod status in {{ item.item.namespace }} namespace in controller cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ kibana.results }}"
+  loop_control:
+    label: 'kibana'
+  when: item.changed == true
+
+## kibana endpoint for controller
+- no_log: true 
+  ignore_errors: yes
+  tags: 
+  - monitoring
+  loop: "{{ monitoring_cluster.kibana }}"
+  loop_control:
+    index_var: item[]
+  when: item.workerName  ==  "controller"
+  shell: kubectl --kubeconfig="{{ clusters.controller.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: nodeip
+- name: fetching kibana endpoint
+  tags: 
+  - monitoring
+  ignore_errors: yes
+  register: workernodeip
+  loop: "{{ nodeip.results }}"
+  loop_control:
+    label: 'nodeip'
+  when: 
+    - item.item.workerName  ==  "controller"
+  debug:
+    msg:
+    - kibana endpoint of "{{ item.item.name }}" in "{{ item.item.namespace }}" namespace in controller cluster is ->
+    - http://{{ item.stdout }}:{{ item.item.NodePort }}
+
+#Kibana for worker
+- no_log: true
+  tags: 
+  - monitoring
+  ignore_errors: yes
+  with_nested:
+  - "{{ monitoring_cluster.kibana }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  shell: kubectl get pods -n {{ item.0.namespace }} --kubeconfig="{{ item.1.kubeconfig }}" | grep -i kibana
+  register: kibana
+- name: List of kibana pod deployed on monitoring clusters
+  tags: 
+  - monitoring
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Verifying kibana pod status in {{ item.item.0.namespace }} namespace in {{ item.item.1.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ kibana.results }}"
+  loop_control:
+    label: 'kibana'
+  when: item.changed == true
+
+
+## kibana endpoint for worker 
+- no_log: true 
+  ignore_errors: yes
+  tags: 
+  - monitoring
+  with_nested:
+  - "{{ monitoring_cluster.kibana }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: nodeip
+- name: fetching kibana endpoint
+  tags: 
+  - monitoring
+  ignore_errors: yes
+  register: workernodeip
+  with_nested:
+  - "{{ monitoring_cluster.kibana }}"
+  - "{{ clusters.worker }}"
+  - "{{ nodeip.results }}"
+  loop_control:
+    label: 'nodeip'
+  when: 
+  - item.0.workerName  ==  item.1.name
+  - item.0.workerName  ==  item.2.item.0.workerName
+  - item.0.name  ==  item.2.item.0.name
+  - item.2.item.0.workerName == item.2.item.1.name
+  debug:
+    msg:
+    - kibana endpoint of "{{ item.0.name }}" in "{{ item.0.namespace }}" namespace in "{{ item.0.workerName }}" cluster is ->
+    - http://{{ item.2.stdout }}:{{ item.0.NodePort }}
+
+
+# promethues for controller
+- ignore_errors: yes
+  no_log: true
+  tags: 
+  - monitoring
+  loop: "{{ monitoring_cluster.prometheus }}"
+  loop_control:
+    index_var: item[]
+  when: item.workerName  ==  "controller"
+  shell: kubectl get pods -n {{ item.namespace }} --kubeconfig={{ clusters.controller.kubeconfig }} | grep -i prometheus
+  register: prometheus
+- name: List of prometheus pod deployed on monitoring clusters
+  tags: 
+  - monitoring
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Verifying prometheus pod status in {{ item.item.namespace }} namespace in Controller cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ prometheus.results }}"
+  loop_control:
+    label: 'prometheus'
+  when: item.changed == true
+
+## prometheus endpoint for controller
+- no_log: true 
+  ignore_errors: yes
+  tags: 
+  - monitoring
+  loop: "{{ monitoring_cluster.prometheus }}"
+  loop_control:
+    index_var: item[]
+  when: item.workerName  ==  "controller"
+  shell: kubectl --kubeconfig="{{ clusters.controller.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: nodeip
+- name: fetching prometheus endpoint
+  tags: 
+  - monitoring
+  ignore_errors: yes
+  register: workernodeip
+  loop: "{{ nodeip.results }}"
+  loop_control:
+    label: 'nodeip'
+  when: 
+    - item.item.workerName  ==  "controller"
+  debug:
+    msg:
+    - prometheus endpoint of "{{ item.item.name }}" in "{{ item.item.namespace }}" namespace in controller cluster is ->
+    - http://{{ item.stdout }}:{{ item.item.NodePort }}
+
+# promethues for Worker
+- ignore_errors: yes
+  no_log: true
+  tags: 
+  - monitoring
+  with_nested:
+  - "{{ monitoring_cluster.prometheus }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  shell: kubectl get pods -n {{ item.0.namespace }} --kubeconfig="{{ item.1.kubeconfig }}" | grep -i prometheus
+  register: prometheus
+- name: List of prometheus pod deployed on monitoring clusters
+  tags: 
+  - monitoring
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Verifying prometheus pod status in {{ item.item.0.namespace }} namespace in {{ item.item.1.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ prometheus.results }}"
+  loop_control:
+    label: 'prometheus'
+  when: item.changed == true
+
+
+## promethus endpoint for worker
+
+- no_log: true 
+  ignore_errors: yes
+  tags: 
+  - monitoring
+  with_nested:
+  - "{{ monitoring_cluster.prometheus }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: nodeip
+- name: fetching prometheus endpoint
+  tags: 
+  - monitoring
+  ignore_errors: yes
+  register: workernodeip
+  with_nested:
+  - "{{ monitoring_cluster.prometheus }}"
+  - "{{ clusters.worker }}"
+  - "{{ nodeip.results }}"
+  loop_control:
+    label: 'nodeip'
+  when: 
+  - item.0.workerName  ==  item.1.name
+  - item.0.workerName  ==  item.2.item.0.workerName
+  - item.0.name  ==  item.2.item.0.name
+  - item.2.item.0.workerName == item.2.item.1.name
+  debug:
+    msg:
+    - prometheus endpoint of "{{ item.0.name }}" in "{{ item.0.namespace }}" namespace in "{{ item.0.workerName }}" cluster is ->
+    - http://{{ item.2.stdout }}:{{ item.0.NodePort }}
+
+
+# Grafana for controller
+- no_log: true
+  tags: 
+  - monitoring
+  ignore_errors: yes
+  loop: "{{ monitoring_cluster.grafana }}"
+  loop_control:
+    index_var: item[]
+  when: item.workerName  ==  "controller"
+  shell: kubectl get pods -n {{ item.namespace }} --kubeconfig={{ clusters.controller.kubeconfig }} | grep -i grafana
+  register: grafana
+- name: List of grafana pod deployed on monitoring clusters
+  tags: 
+  - monitoring
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Verifying grafana pod status in {{ item.item.namespace }} namespace in Controller cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ grafana.results }}"
+  loop_control:
+    label: 'grafana'
+  when: item.changed == true
+
+## grafana endpoint for controller
+- no_log: true 
+  ignore_errors: yes
+  tags: 
+  - monitoring
+  loop: "{{ monitoring_cluster.grafana }}"
+  loop_control:
+    index_var: item[]
+  when: item.workerName  ==  "controller"
+  shell: kubectl --kubeconfig="{{ clusters.controller.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: nodeip
+- name: fetching grafana endpoint
+  tags: 
+  - monitoring
+  ignore_errors: yes
+  register: workernodeip
+  loop: "{{ nodeip.results }}"
+  loop_control:
+    label: 'nodeip'
+  when: 
+    - item.item.workerName  ==  "controller"
+  debug:
+    msg:
+    - grafana endpoint of "{{ item.item.name }}" in "{{ item.item.namespace }}" namespace in controller cluster is ->
+    - http://{{ item.stdout }}:{{ item.item.NodePort }}
+
+
+# Grafana for worker
+- no_log: true
+  tags: 
+  - monitoring
+  ignore_errors: yes
+  with_nested:
+  - "{{ monitoring_cluster.grafana }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  shell: kubectl get pods -n {{ item.0.namespace }} --kubeconfig="{{ item.1.kubeconfig }}" | grep -i grafana
+  register: grafana
+- name: List of grafana pod deployed on monitoring clusters
+  tags: 
+  - monitoring
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Verifying grafana pod status in {{ item.item.0.namespace }} namespace in {{ item.item.1.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ grafana.results }}"
+  loop_control:
+    label: 'grafana'
+  when: item.changed == true
+
+## Grafana endpoint for worker
+- no_log: true 
+  ignore_errors: yes
+  tags: 
+  - monitoring
+  with_nested:
+  - "{{ monitoring_cluster.grafana }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: nodeip
+- name: fetching grafana endpoint
+  ignore_errors: yes
+  tags: 
+  - monitoring
+  register: workernodeip
+  with_nested:
+  - "{{ monitoring_cluster.grafana }}"
+  - "{{ clusters.worker }}"
+  - "{{ nodeip.results }}"
+  loop_control:
+    label: 'nodeip'
+  when: 
+  - item.0.workerName  ==  item.1.name
+  - item.0.workerName  ==  item.2.item.0.workerName
+  - item.0.name  ==  item.2.item.0.name
+  - item.2.item.0.workerName == item.2.item.1.name
+  debug:
+    msg:
+    - grafana endpoint of "{{ item.0.name }}" in "{{ item.0.namespace }}" namespace in "{{ item.0.workerName }}" cluster is ->
+    - http://{{ item.2.stdout }}:{{ item.0.NodePort }}
+
+
+- tags: 
+  - kubecost
+  debug:
+    msg:     
+    - '###################################################################'
+    - '#                 Kubecost Analyzer Status                        #'
+    - '###################################################################'
+
+## kubecost endpoint 
+
+- no_log: true
+  ignore_errors: yes
+  tags: 
+  - kubecost
+  - test
+  with_nested:
+  - "{{ kubecost }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: nodeip
+- name: fetching kubecost endpoint
+  ignore_errors: yes
+  tags: 
+  - kubecost
+  - test
+  register: workernodeip
+  with_nested:
+  - "{{ kubecost }}"
+  - "{{ clusters.worker }}"
+  - "{{ nodeip.results }}"
+  loop_control:
+    label: 'nodeip'
+  when: 
+  - item.0.workerName  ==  item.1.name
+  - item.0.workerName  ==  item.2.item.0.workerName
+  - item.0.name  ==  item.2.item.0.name
+  - item.2.item.0.workerName == item.2.item.1.name
+  debug:
+    msg:
+    - kubecost endpoint of "{{ item.0.name }}" in "{{ item.0.namespace }}" namespace in "{{ item.0.workerName }}" cluster is ->
+    - http://{{ item.2.stdout }}:{{ item.0.NodePort }}
+    
+- tags: 
+  - endpoints
+  debug:
+    msg:     
+    - '###################################################################'
+    - '#                      IMPORTANT URL                              #'
+    - '###################################################################'
+
+- tags: 
+  - endpoint
+  - kubeslice-ui-endpoint
+  debug:
+    msg:     
+    - '###################################################################'
+    - '#            Kubeslice UI endpoint for controller                 #'
+    - '###################################################################'
+
+## Kubeslice UI endpoint for controller
+
+#NODEPORT
+- name: Feteching service nodeport in kubeslice-ui
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - kubeslice-ui-endpoint
+  no_log: true
+  register: productpagesvc
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    name: kubeslice-ui-proxy
+    namespace: "kubeslice-controller"
+    kubeconfig: "{{ clusters.controller.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+
+- no_log: true
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - kubeslice-ui-endpoint
+  shell: kubectl --kubeconfig="{{ clusters.controller.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: nodeip
+
+- name: Kubeslice-ui endpoint [ Nodeport ]
+  when: 
+  - clusters.controller.Kubeslice_ui.service_type == "NodePort"
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - kubeslice-ui-endpoint
+  loop_control:
+    label: 'productpagesvc'
+  debug:
+    msg:
+    - "Kubeslice-UI endpoint: "
+    - "https://{{ nodeip.stdout }}:{{ productpagesvc.resources.0.spec.ports.0.nodePort }}"
+
+- name: Kubeslice-ui endpoint [ Loadbalancer ] 
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - kubeslice-ui-endpoint
+  loop_control:
+    label: 'productpagesvc'
+  debug:
+    msg:
+    - "Kubeslice-UI endpoint: "
+    - "https://{{ productpagesvc.resources.0.status.loadBalancer.ingress.0.ip }}"
+
+- name: fetching Kubeslice-ui access token
+  no_log: true 
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - kubeslice-ui-endpoint
+  shell: kubectl --kubeconfig="{{ clusters.controller.kubeconfig }}" get secret kubeslice-rbac-rw-admin-ui -o jsonpath="{.data.token}" -n kubeslice-{{ clusters.controller.projectNamespace }} | base64 --decode
+  register: kubesliceuitoken
+- name: Kubeslice-ui access token
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - kubeslice-ui-endpoint
+  loop_control:
+    label: 'kubesliceuitoken'
+  debug:
+    msg:
+    - "Kubeslice-UI Access token :"
+    - "{{ kubesliceuitoken.stdout }}"
+
+- tags: 
+  - endpoint
+  - Bookinfo-endpoint
+  debug:
+    msg:     
+    - '###################################################################'
+    - '#                      Bookinfo Application URL                   #'
+    - '###################################################################'
+
+## Bookinfo Application URL 
+- name: Feteching service nodeport in bookinfo application
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - Bookinfo-endpoint
+  no_log: true
+  with_nested:
+  - "{{ onboardAppsToSlices.bookinfoDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.bookinfoClient == true
+  - item.0.name  ==  item.1.name 
+  register: productpagesvc
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    name: productpage
+    namespace: "{{ item.0.applicationNs }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+
+- name: Feteching nodeIP for bookinfo
+  no_log: true
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - Bookinfo-endpoint
+  with_nested:
+  - "{{ onboardAppsToSlices.bookinfoDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name 
+  - item.0.bookinfoClient == true
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: nodeip
+
+- name: Bookinfo endpoint
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - Bookinfo-endpoint
+  with_nested:
+  - "{{ onboardAppsToSlices.bookinfoDeployment }}"
+  - "{{ clusters.worker }}"
+  - "{{ productpagesvc.results }}"
+  - "{{ nodeip.results }}"
+  loop_control:
+    label: 'productpagesvc'
+  when: 
+  - item.1.nodeIp == item.2.item.1.nodeIp 
+  - item.2.item.0.bookinfoClient == true
+  - item.2.item.0.name   ==  item.2.item.1.name 
+  - item.0.bookinfoClient == true
+  - item.0.name  ==  item.1.name  
+  - item.0.name == item.3.item.0.name
+  - item.3.item.0.name == item.3.item.1.name
+  debug:
+    msg:
+    - "bookinfo endpoint for {{ item.1.name }} cluster is :"
+    - "http://{{ item.1.nodeIp | default(item.3.stdout, true) }}:{{ item.2.resources.0.spec.ports.0.nodePort }}"
+
+- tags: 
+  - endpoint
+  - OBS-endpoint
+  debug:
+    msg:     
+    - '###################################################################'
+    - '#                    OBS Application URL                          #'
+    - '###################################################################'
+
+## OBS Application URL 
+- name: Feteching service nodeport in obs application
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - OBS-endpoint
+  no_log: true
+  with_nested:
+  - "{{ onboardAppsToSlices.obsDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.obsClient == true
+  - item.0.name  ==  item.1.name 
+  register: productpagesvc
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    name: obs-ui
+    namespace: "{{ item.0.applicationNs }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+
+- name: Feteching nodeIP for obs
+  no_log: true
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - OBS-endpoint
+  with_nested:
+  - "{{ onboardAppsToSlices.obsDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name 
+  - item.0.obsClient == true
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: nodeip
+
+- name: obs endpoint
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - OBS-endpoint
+  with_nested:
+  - "{{ onboardAppsToSlices.obsDeployment }}"
+  - "{{ clusters.worker }}"
+  - "{{ productpagesvc.results }}"
+  - "{{ nodeip.results }}"
+  loop_control:
+    label: 'productpagesvc'
+  when: 
+  - item.1.nodeIp == item.2.item.1.nodeIp 
+  - item.2.item.0.obsClient == true
+  - item.2.item.0.name   ==  item.2.item.1.name 
+  - item.0.obsClient == true
+  - item.0.name  ==  item.1.name  
+  - item.0.name == item.3.item.0.name
+  - item.3.item.0.name == item.3.item.1.name
+  debug:
+    msg:
+    - "obs endpoint for {{ item.1.name }} cluster is :"
+    - "http://{{ item.1.nodeIp | default(item.3.stdout, true) }}:{{ item.2.resources.0.spec.ports.0.nodePort }}"
+
+- tags: 
+  - endpoint
+  - Boutique-endpoint
+  debug:
+    msg:     
+    - '###################################################################'
+    - '#                    Boutique Application URL                     #'
+    - '###################################################################'
+
+## boutique Application URL 
+- name: Feteching service nodeport in boutique application
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - Boutique-endpoint
+  no_log: true
+  with_nested:
+  - "{{ onboardAppsToSlices.boutiqueDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.boutiqueClient == true
+  - item.0.name  ==  item.1.name 
+  register: productpagesvc
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    name: frontend-external
+    namespace: "{{ item.0.applicationNs }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+
+- name: Feteching nodeIP for boutique
+  no_log: true
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - Boutique-endpoint
+  with_nested:
+  - "{{ onboardAppsToSlices.boutiqueDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name 
+  - item.0.boutiqueClient == true
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: nodeip
+
+- name: boutique endpoint [ Nodeport ]
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - Boutique-endpoint
+  with_nested:
+  - "{{ onboardAppsToSlices.boutiqueDeployment }}"
+  - "{{ clusters.worker }}"
+  - "{{ productpagesvc.results }}"
+  - "{{ nodeip.results }}"
+  loop_control:
+    label: 'productpagesvc'
+  when: 
+  - item.1.nodeIp == item.2.item.1.nodeIp 
+  - item.2.item.0.boutiqueClient == true
+  - item.2.item.0.name   ==  item.2.item.1.name 
+  - item.0.boutiqueClient == true
+  - item.0.name  ==  item.1.name  
+  - item.0.name == item.3.item.0.name
+  - item.3.item.0.name == item.3.item.1.name
+  debug:
+    msg:
+    - "boutique endpoint for {{ item.1.name }} cluster is :"
+    - "http://{{ item.1.nodeIp | default(item.3.stdout, true) }}:{{ item.2.resources.0.spec.ports.0.nodePort }}"
+
+- name: boutique endpoint [ loadbalancer ] 
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - Boutique-endpoint
+  with_nested:
+  - "{{ onboardAppsToSlices.boutiqueDeployment }}"
+  - "{{ clusters.worker }}"
+  - "{{ productpagesvc.results }}"
+  - "{{ nodeip.results }}"
+  loop_control:
+    label: 'productpagesvc'
+  when: 
+  - item.1.nodeIp == item.2.item.1.nodeIp 
+  - item.2.item.0.boutiqueClient == true
+  - item.2.item.0.name   ==  item.2.item.1.name 
+  - item.0.boutiqueClient == true
+  - item.0.name  ==  item.1.name  
+  - item.0.name == item.3.item.0.name
+  - item.3.item.0.name == item.3.item.1.name
+  debug:
+    msg:
+    - "boutique endpoint for {{ item.1.name }} cluster is :"
+    - "http://{{ item.2.resources.0.status.loadBalancer.ingress.0.ip }}"
+
+- tags: 
+  - endpoint
+  - cockroachDB-endpoint
+  debug:
+    msg:     
+    - '###################################################################'
+    - '#                    cockroachDB Application URL                  #'
+    - '###################################################################'
+
+## cockroachDB Application URL 
+- name: Feteching service nodeport in cockroachDB application
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - cockroachDB-endpoint
+  no_log: true
+  with_nested:
+  - "{{ onboardAppsToSlices.cockroachDBDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name 
+  register: productpagesvc
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    name: cockroachdb-public
+    namespace: "{{ item.0.applicationNs }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+
+- name: Feteching nodeIP for cockroachDB
+  no_log: true
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - cockroachDB-endpoint
+  with_nested:
+  - "{{ onboardAppsToSlices.cockroachDBDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name 
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: nodeip
+
+- name: cockroachDB endpoint
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - cockroachDB-endpoint
+  with_nested:
+  - "{{ onboardAppsToSlices.cockroachDBDeployment }}"
+  - "{{ clusters.worker }}"
+  - "{{ productpagesvc.results }}"
+  - "{{ nodeip.results }}"
+  loop_control:
+    label: 'productpagesvc'
+  when: 
+  - item.0.name == item.2.item.0.name
+  - item.1.nodeIp == item.2.item.1.nodeIp 
+  - item.2.item.0.name   ==  item.2.item.1.name 
+  - item.0.name  ==  item.1.name  
+  - item.0.name == item.3.item.0.name
+  - item.3.item.0.name == item.3.item.1.name
+  debug:
+    msg:
+    - "cockroachDB endpoint for {{ item.1.name }} cluster is :"
+    - "http://{{ item.1.nodeIp | default(item.3.stdout, true) }}:{{ item.2.resources.0.spec.ports.0.nodePort }}"
+
+- tags: 
+  - endpoint
+  - Mushop-endpoint
+  debug:
+    msg:     
+    - '###################################################################'
+    - '#                    Mushop Application URL                       #'
+    - '###################################################################'
+
+## mushop Application URL 
+- name: Feteching service nodeport in mushop application
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - Mushop-endpoint
+  no_log: true
+  with_nested:
+  - "{{ onboardAppsToSlices.mushopDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name 
+  register: productpagesvc
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    name: edge
+    namespace: "{{ item.0.applicationNs }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+
+- name: Feteching nodeIP for mushop
+  no_log: true
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - Mushop-endpoint
+  with_nested:
+  - "{{ onboardAppsToSlices.mushopDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name 
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: nodeip
+
+- name: mushop endpoint
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - Mushop-endpoint
+  with_nested:
+  - "{{ onboardAppsToSlices.mushopDeployment }}"
+  - "{{ clusters.worker }}"
+  - "{{ productpagesvc.results }}"
+  - "{{ nodeip.results }}"
+  loop_control:
+    label: 'productpagesvc'
+  when: 
+  - item.0.name == item.2.item.0.name
+  - item.1.nodeIp == item.2.item.1.nodeIp 
+  - item.2.item.0.name   ==  item.2.item.1.name 
+  - item.0.name  ==  item.1.name  
+  - item.0.name == item.3.item.0.name
+  - item.3.item.0.name == item.3.item.1.name
+  debug:
+    msg:
+    - "mushop endpoint for {{ item.1.name }} cluster is :"
+    - "http://{{ item.1.nodeIp | default(item.3.stdout, true) }}:{{ item.2.resources.0.spec.ports.0.nodePort }}"
+
+
+- tags: 
+  - endpoint
+  - Mongodb-endpoint
+  debug:
+    msg:     
+    - '###################################################################'
+    - '#                    Mongodb Application URL                      #'
+    - '###################################################################'
+
+
+##Ops Manager URL address if service is loadbalancer
+- no_log: true
+  tags: 
+  - mongodb-opsmanager
+  - endpoint
+  - Mongodb-endpoint
+  ignore_errors: yes
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  - item.0.Ops_manager_service_type == "LoadBalancer"
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" -n {{ item.0.operator_namespace }} get svc ops-manager-svc-ext -o jsonpath='{.status.loadBalancer.ingress[0].ip}:{.spec.ports[0].port}'
+  register: mongodb
+- name: fetching Ops Manager URL address if service is loadbalancer
+  tags: 
+  - mongodb-opsmanager
+  - endpoint
+  - Mongodb-endpoint
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'This is your Ops-manager URL from {{ item.item.1.name }} cluster ->'
+    - http://{{ item.stdout }}
+    - Username ->  {{ item.0.username }}
+    - Password ->  {{ item.0.password }} 
+  loop: "{{ mongodb.results }}"
+  loop_control:
+    label: 'mongodb'
+  when: 
+  - item.changed == true 
+  - item.item.0.mongodb_master == true 
+  - item.item.0.Ops_manager_service_type == "LoadBalancer"
+
+##Ops Manager URL address if service is NodePort
+- tags:
+  - mongodb-opsmanager
+  - endpoint
+  - Mongodb-endpoint
+  ignore_errors: yes
+  no_log: false
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  - item.0.Ops_manager_service_type == "NodePort"
+  register: mongodb 
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    name: ops-manager-svc-ext
+    namespace: "{{ item.0.operator_namespace }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+
+- no_log: true
+  tags: 
+  - mongodb-opsmanager
+  - endpoint
+  - Mongodb-endpoint
+  ignore_errors: yes
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  - item.0.Ops_manager_service_type == "NodePort"
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: nodeip
+
+- name: fetching Ops Manager URL address if service is NodePort
+  ignore_errors: yes
+  tags:
+  - mongodb-opsmanager
+  - endpoint
+  - Mongodb-endpoint
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  - "{{ mongodb.results }}"
+  - "{{ nodeip.results }}"
+  loop_control:
+    label: 'mongodb'
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  - item.0.Ops_manager_service_type == "NodePort"
+  - item.0.workerName   ==  item.2.item.0.workerName 
+  - item.0.workerName  ==   item.2.item.1.name 
+  - item.0.workerName  ==   item.3.item.1.name 
+  - item.0.workerName  ==   item.3.item.0.workerName 
+  debug:
+    msg:
+    - 'This is your Ops-manager URL from {{ item.1.name }} cluster ->'
+    - http://{{ item.1.nodeIp | default(item.3.stdout, true) }}:{{ item.2.resources.0.spec.ports.0.nodePort }} 
+    - Username ->  {{ item.0.username }}
+    - Password ->  {{ item.0.password }}    
+
+
+- tags: 
+  - endpoint
+  - elasticsearch-endpoint
+  debug:
+    msg:     
+    - '###################################################################'
+    - '#                    elasticsearch Endpoint                       #'
+    - '###################################################################'
+
+## elasticsearch endpoint for controller
+- no_log: true 
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - elasticsearch-endpoint
+  loop: "{{ monitoring_cluster.elasticsearch }}"
+  loop_control:
+    index_var: item[]
+  when: item.workerName  ==  "controller"
+  shell: kubectl --kubeconfig="{{ clusters.controller.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: nodeip
+- name: fetching elasticsearch endpoint
+  tags:
+  - endpoint
+  - elasticsearch-endpoint
+  ignore_errors: yes
+  register: workernodeip
+  loop: "{{ nodeip.results }}"
+  loop_control:
+    label: 'nodeip'
+  when: 
+    - item.item.workerName  ==  "controller"
+  debug:
+    msg:
+    - elasticsearch endpoint of "{{ item.item.name }}" in "{{ item.item.namespace }}" namespace in controller cluster is ->
+    - http://{{ item.stdout }}:{{ item.item.nodePort }}
+
+
+## elasticsearch endpoint for worker
+- no_log: true 
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - elasticsearch-endpoint
+  with_nested:
+  - "{{ monitoring_cluster.elasticsearch }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: nodeip
+- name: fetching elasticsearch endpoint
+  tags:
+  - endpoint
+  - elasticsearch-endpoint
+  ignore_errors: yes
+  register: workernodeip
+  with_nested:
+  - "{{ monitoring_cluster.elasticsearch }}"
+  - "{{ clusters.worker }}"
+  - "{{ nodeip.results }}"
+  loop_control:
+    label: 'nodeip'
+  when: 
+  - item.0.workerName  ==  item.1.name
+  - item.0.workerName  ==  item.2.item.0.workerName
+  - item.0.name  ==  item.2.item.0.name
+  - item.2.item.0.workerName == item.2.item.1.name
+  debug:
+    msg:
+    - elasticsearch endpoint of "{{ item.0.name }}" in "{{ item.0.namespace }}" namespace in "{{ item.0.workerName }}" cluster is ->
+    - http://{{ item.2.stdout }}:{{ item.0.nodePort }}
+  
+- tags: 
+  - endpoint
+  - kibana-endpoint
+  debug:
+    msg:     
+    - '###################################################################'
+    - '#                    kibana Endpoint                              #'
+    - '###################################################################'
+
+
+## kibana endpoint for controller
+- no_log: true 
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - kibana-endpoint
+  loop: "{{ monitoring_cluster.kibana }}"
+  loop_control:
+    index_var: item[]
+  when: item.workerName  ==  "controller"
+  shell: kubectl --kubeconfig="{{ clusters.controller.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: nodeip
+- name: fetching kibana endpoint
+  tags:
+  - endpoint
+  - kibana-endpoint
+  ignore_errors: yes
+  register: workernodeip
+  loop: "{{ nodeip.results }}"
+  loop_control:
+    label: 'nodeip'
+  when: 
+    - item.item.workerName  ==  "controller"
+  debug:
+    msg:
+    - kibana endpoint of "{{ item.item.name }}" in "{{ item.item.namespace }}" namespace in controller cluster is ->
+    - http://{{ item.stdout }}:{{ item.item.NodePort }}
+
+## kibana endpoint for worker 
+- no_log: true 
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - kibana-endpoint
+  with_nested:
+  - "{{ monitoring_cluster.kibana }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: nodeip
+- name: fetching kibana endpoint
+  tags:
+  - endpoint
+  - kibana-endpoint
+  ignore_errors: yes
+  register: workernodeip
+  with_nested:
+  - "{{ monitoring_cluster.kibana }}"
+  - "{{ clusters.worker }}"
+  - "{{ nodeip.results }}"
+  loop_control:
+    label: 'nodeip'
+  when: 
+  - item.0.workerName  ==  item.1.name
+  - item.0.workerName  ==  item.2.item.0.workerName
+  - item.0.name  ==  item.2.item.0.name
+  - item.2.item.0.workerName == item.2.item.1.name
+  debug:
+    msg:
+    - kibana endpoint of "{{ item.0.name }}" in "{{ item.0.namespace }}" namespace in "{{ item.0.workerName }}" cluster is ->
+    - http://{{ item.2.stdout }}:{{ item.0.NodePort }}
+
+
+- tags: 
+  - endpoint
+  - Prometheus-endpoint
+  debug:
+    msg:     
+    - '###################################################################'
+    - '#                    Prometheus Endpoint                          #'
+    - '###################################################################'
+
+
+## prometheus endpoint for controller
+- no_log: true 
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - Prometheus-endpoint
+  loop: "{{ monitoring_cluster.prometheus }}"
+  loop_control:
+    index_var: item[]
+  when: item.workerName  ==  "controller"
+  shell: kubectl --kubeconfig="{{ clusters.controller.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: nodeip
+- name: fetching prometheus endpoint
+  tags:
+  - endpoint
+  - Prometheus-endpoint
+  ignore_errors: yes
+  register: workernodeip
+  loop: "{{ nodeip.results }}"
+  loop_control:
+    label: 'nodeip'
+  when: 
+    - item.item.workerName  ==  "controller"
+  debug:
+    msg:
+    - prometheus endpoint of "{{ item.item.name }}" in "{{ item.item.namespace }}" namespace in controller cluster is ->
+    - http://{{ item.stdout }}:{{ item.item.NodePort }}
+
+
+## promethus endpoint for worker
+- no_log: true 
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - Prometheus-endpoint
+  with_nested:
+  - "{{ monitoring_cluster.prometheus }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: nodeip
+- name: fetching prometheus endpoint
+  tags:
+  - endpoint
+  - Prometheus-endpoint
+  ignore_errors: yes
+  register: workernodeip
+  with_nested:
+  - "{{ monitoring_cluster.prometheus }}"
+  - "{{ clusters.worker }}"
+  - "{{ nodeip.results }}"
+  loop_control:
+    label: 'nodeip'
+  when: 
+  - item.0.workerName  ==  item.1.name
+  - item.0.workerName  ==  item.2.item.0.workerName
+  - item.0.name  ==  item.2.item.0.name
+  - item.2.item.0.workerName == item.2.item.1.name
+  debug:
+    msg:
+    - prometheus endpoint of "{{ item.0.name }}" in "{{ item.0.namespace }}" namespace in "{{ item.0.workerName }}" cluster is ->
+    - http://{{ item.2.stdout }}:{{ item.0.NodePort }}
+
+- tags: 
+  - endpoint
+  - Grafana-endpoint
+  debug:
+    msg:     
+    - '###################################################################'
+    - '#                    Grafana Endpoint                             #'
+    - '###################################################################'
+
+## grafana endpoint for controller
+- no_log: true 
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - Grafana-endpoint
+  loop: "{{ monitoring_cluster.grafana }}"
+  loop_control:
+    index_var: item[]
+  when: item.workerName  ==  "controller"
+  shell: kubectl --kubeconfig="{{ clusters.controller.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: nodeip
+- name: fetching grafana endpoint
+  tags:
+  - endpoint
+  - Grafana-endpoint
+  ignore_errors: yes
+  register: workernodeip
+  loop: "{{ nodeip.results }}"
+  loop_control:
+    label: 'nodeip'
+  when: 
+    - item.item.workerName  ==  "controller"
+  debug:
+    msg:
+    - grafana endpoint of "{{ item.item.name }}" in "{{ item.item.namespace }}" namespace in controller cluster is ->
+    - http://{{ item.stdout }}:{{ item.item.NodePort }}
+
+## Grafana endpoint for worker
+- no_log: true 
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - Grafana-endpoint
+  with_nested:
+  - "{{ monitoring_cluster.grafana }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: nodeip
+- name: fetching grafana endpoint
+  ignore_errors: yes
+  tags:
+  - endpoint
+  - Grafana-endpoint
+  register: workernodeip
+  with_nested:
+  - "{{ monitoring_cluster.grafana }}"
+  - "{{ clusters.worker }}"
+  - "{{ nodeip.results }}"
+  loop_control:
+    label: 'nodeip'
+  when: 
+  - item.0.workerName  ==  item.1.name
+  - item.0.workerName  ==  item.2.item.0.workerName
+  - item.0.name  ==  item.2.item.0.name
+  - item.2.item.0.workerName == item.2.item.1.name
+  debug:
+    msg:
+    - grafana endpoint of "{{ item.0.name }}" in "{{ item.0.namespace }}" namespace in "{{ item.0.workerName }}" cluster is ->
+    - http://{{ item.2.stdout }}:{{ item.0.NodePort }}
+

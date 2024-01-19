@@ -1,0 +1,46 @@
+---
+# tasks file for service-export-creation
+
+############################################
+#######   Service Export Creation  ########
+##########################################
+
+- name: Create a namespace 
+  tags:
+  - serviceexport
+  with_nested:
+  - "{{ serviceExport }}"
+  - "{{ clusters.worker }}"
+  kubernetes.core.k8s:
+    name: "{{ item.0.applicationNs }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+  when: item.0.workerName  ==  item.1.name 
+
+
+- name: serviceexport on server worker
+  tags:
+  - serviceexport
+  with_nested:
+  - "{{ serviceExport }}"
+  - "{{ clusters.worker }}"
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ item.0.applicationNs }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    definition: |
+      apiVersion: networking.kubeslice.io/v1beta1
+      kind: ServiceExport
+      metadata:
+        name: {{ item.0.name }}
+      spec:
+        slice: {{ item.0.sliceName }}
+        selector:
+          matchLabels: {{ item.0.labels }}
+        ingressEnabled: {{ item.0.ingressEnabled }}
+        ports: {{ item.0.ports}}
+  when: item.0.workerName  ==  item.1.name

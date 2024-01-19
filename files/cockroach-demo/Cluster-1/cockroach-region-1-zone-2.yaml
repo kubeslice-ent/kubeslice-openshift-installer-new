@@ -1,0 +1,16 @@
+---
+apiVersion: networking.kubeslice.io/v1beta1
+kind: ServiceExport
+metadata:
+ name: cockroach-region-1-zone-2
+ namespace: cockroachdb
+spec:
+ slice: cockroach-slice
+ selector:
+   matchLabels:
+     app: cockroach-cluster-1-db-2
+ ingressEnabled: false
+ ports:
+ - name: grpc
+   containerPort: 26257
+   protocol: grpc

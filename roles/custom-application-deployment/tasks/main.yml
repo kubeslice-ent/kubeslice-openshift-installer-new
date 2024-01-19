@@ -1,0 +1,342 @@
+---
+# tasks file for custom-application-deployment
+
+## Using manifest deployment ##
+- name: Create a namespace for custom application deployment
+  tags: 
+  - custom_app_deployment
+  ignore_errors: yes
+  with_nested:
+  - "{{ customAppDeployment.usingManifestDeployement }}"
+  - "{{ clusters.worker }}"
+  kubernetes.core.k8s:
+    name: "{{ item.0.applicationNs }}"
+    wait_sleep: 5
+    api_version: v1
+    kind: Namespace
+    state: present
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+  when: item.0.name  ==  item.1.name 
+
+#openshift
+- name: giving privillage to serviceaccount of custom application namespace
+  ignore_errors: yes
+  when : 
+  - item.1.openshift_cluster == true
+  - item.0.name  ==  item.1.name
+  tags:
+  - custom_app_deployment
+  with_nested:
+  - "{{ customAppDeployment.usingManifestDeployement }}"
+  - "{{ clusters.worker }}"
+  shell: "oc adm policy add-scc-to-group privileged system:serviceaccounts:{{ item.0.applicationNs }} --kubeconfig={{ item.1.kubeconfig }}"
+
+- name: assigning enforce privileged for custom application namespace
+  ignore_errors: yes
+  when : 
+  - item.1.openshift_cluster == true
+  - item.0.name  ==  item.1.name
+  tags:
+  - custom_app_deployment
+  with_nested:
+  - "{{ customAppDeployment.usingManifestDeployement }}"
+  - "{{ clusters.worker }}"
+  shell: "kubectl --kubeconfig={{ item.1.kubeconfig }} label --overwrite ns {{ item.0.applicationNs }} pod-security.kubernetes.io/enforce=privileged"
+
+#controller
+- name: deploy custom application on controller cluster 
+  tags: 
+  - custom_app_deployment
+  ignore_errors: yes
+  loop: "{{ customAppDeployment.usingManifestDeployement }}"
+  loop_control:
+    index_var: item[] 
+  when: item.name  ==  "controller" 
+  kubernetes.core.k8s:
+    state: present
+    wait: true
+    wait_timeout: 120
+    namespace: "{{ item.applicationNs }}"
+    kubeconfig: "{{ clusters.controller.kubeconfig }}" 
+    validate_certs: "{{ validate_certs }}"
+    src: "{{ item.manifestFilePath }}"
+
+- name: wait
+  tags: 
+  - custom_app_deployment
+  ansible.builtin.pause:
+    seconds: "{{ chart_deploy_timeout }}"
+
+## status of pods of controller
+- no_log: true
+  tags: 
+  - custom_app_deployment
+  ignore_errors: yes
+  loop: "{{ customAppDeployment.usingManifestDeployement }}"
+  loop_control:
+    index_var: item[] 
+  when: item.name  ==  "controller" 
+  shell: kubectl get pods -n {{ item.applicationNs }} --kubeconfig="{{ clusters.controller.kubeconfig }}" 
+  register: appdeployment
+- name: Verifying custom application pod status on controller cluster
+  tags: 
+  - custom_app_deployment
+  when: item.name  ==  "controller" 
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Custom App deployed in {{ item.item.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ appdeployment.results }}"
+  loop_control:
+    label: 'appdeployment'
+  when: item.changed == true 
+
+#Worker
+- name: deploy custom application on worker cluster
+  tags: 
+  - custom_app_deployment
+  ignore_errors: yes
+  with_nested:
+  - "{{ customAppDeployment.usingManifestDeployement }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name
+  kubernetes.core.k8s:
+    state: present
+    wait: true
+    wait_timeout: 120
+    namespace: "{{ item.0.applicationNs }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    src: "{{ item.0.manifestFilePath }}"
+
+- name: wait
+  tags: 
+  - custom_app_deployment
+  ansible.builtin.pause:
+    seconds: "{{ chart_deploy_timeout }}"
+
+## status of pods of worker
+- no_log: true
+  tags: 
+  - custom_app_deployment
+  ignore_errors: yes
+  with_nested:
+  - "{{ customAppDeployment.usingManifestDeployement }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name 
+  shell: kubectl get pods -n {{ item.0.applicationNs }} --kubeconfig="{{ item.1.kubeconfig }}"
+  register: appdeployment
+- name: Verifying custom application pod status on worker cluster
+  tags: 
+  - custom_app_deployment
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Custom App deployed in {{ item.item.0.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ appdeployment.results }}"
+  loop_control:
+    label: 'appdeployment'
+  when: item.changed == true 
+
+###############################################################################
+########################## Using HelmChart deployment ##########################
+################################################################################
+
+- name: clean previous repo
+  tags: 
+  - custom_helm_deployment
+  loop: "{{ customAppDeployment.usingHelmchartsDeployment }}"
+  loop_control:
+    index_var: item[] 
+  ignore_errors: yes
+  shell: helm repo remove "{{ item.helm_repo_name }}"
+  
+- name: Add helm repo
+  tags: 
+  - custom_helm_deployment
+  ignore_errors: yes
+  loop: "{{ customAppDeployment.usingHelmchartsDeployment }}"
+  loop_control:
+    index_var: item[]   
+  kubernetes.core.helm_repository:
+      name: "{{ item.helm_repo_name }}"
+      repo_url: "{{ item.helm_chart_url }}"
+      
+- name: update the helm charts
+  tags: 
+  - custom_helm_deployment
+  loop: "{{ customAppDeployment.usingHelmchartsDeployment }}"
+  loop_control:
+    index_var: item[]   
+  ignore_errors: yes
+  shell: helm repo update "{{ item.helm_repo_name }}"
+
+- name: helm search repo
+  tags: 
+  - custom_helm_deployment
+  ignore_errors: yes
+  loop: "{{ customAppDeployment.usingHelmchartsDeployment }}"
+  loop_control:
+    index_var: item[]   
+  shell: helm search repo "{{ item.helm_repo_name }}/"
+  register: command_output
+
+- loop: "{{ command_output.results }}"
+  tags: 
+  - custom_helm_deployment
+  ignore_errors: yes
+  loop_control:
+    label: 'command_output' 
+  debug: 
+    msg: 
+    - helm search repo "{{ item.item.helm_repo_name }}"
+    - "{{ item.stdout }}"
+
+- name: Create a namespace for custom application deployment
+  tags: 
+  - custom_helm_deployment
+  ignore_errors: yes
+  with_nested:
+  - "{{ customAppDeployment.usingHelmchartsDeployment }}"
+  - "{{ clusters.worker }}"
+  kubernetes.core.k8s:
+    name: "{{ item.0.applicationNs }}"
+    wait_sleep: 5
+    api_version: v1
+    kind: Namespace
+    state: present
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+  when: item.0.name  ==  item.1.name 
+
+#openshift
+- name: giving privillage to serviceaccount of custom application namespace
+  ignore_errors: yes
+  when : 
+  - item.1.openshift_cluster == true
+  - item.0.name  ==  item.1.name
+  tags:
+  - custom_helm_deployment
+  with_nested:
+  - "{{ customAppDeployment.usingHelmchartsDeployment }}"
+  - "{{ clusters.worker }}"
+  shell: "oc adm policy add-scc-to-group privileged system:serviceaccounts:{{ item.0.applicationNs }} --kubeconfig={{ item.1.kubeconfig }}"
+
+- name: assigning enforce privileged for custom application namespace
+  ignore_errors: yes
+  when : 
+  - item.1.openshift_cluster == true
+  - item.0.name  ==  item.1.name
+  tags:
+  - custom_helm_deployment
+  with_nested:
+  - "{{ customAppDeployment.usingHelmchartsDeployment }}"
+  - "{{ clusters.worker }}"
+  shell: "kubectl --kubeconfig={{ item.1.kubeconfig }} label --overwrite ns {{ item.0.applicationNs }} pod-security.kubernetes.io/enforce=privileged"
+
+#For controller
+- name: installing custom helmchart deployment on controller
+  tags: 
+  - custom_helm_deployment
+  ignore_errors: yes
+  loop: "{{ customAppDeployment.usingHelmchartsDeployment }}"
+  loop_control:
+    index_var: item[] 
+  when: item.name  ==  "controller" 
+  kubernetes.core.helm:
+    name: "{{ item.release_name }}"
+    chart_version: "{{ item.chart_version }}"
+    chart_ref: "{{ item.helm_repo_name }}/{{ item.release_name }}"
+    release_namespace: "{{ item.applicationNs }}" 
+    create_namespace: true  
+    kubeconfig: "{{ clusters.controller.kubeconfig }}"   
+    values_files:
+      - "{{ item.helm_values_file }}"
+
+- name: wait
+  tags: 
+  - custom_helm_deployment
+  ansible.builtin.pause:
+    seconds: "{{ chart_deploy_timeout }}"
+
+## status of pods of controller
+- no_log: true
+  ignore_errors: yes
+  tags: 
+  - custom_helm_deployment
+  loop: "{{ customAppDeployment.usingHelmchartsDeployment }}"
+  loop_control:
+    index_var: item[] 
+  when: item.name  ==  "controller" 
+  shell: kubectl get pods -n {{ item.applicationNs }} --kubeconfig="{{ clusters.controller.kubeconfig }}" 
+  register: appdeployment
+- name: Verifying custom application pod status on controller cluster
+  tags: 
+  - custom_helm_deployment
+  when: item.name  ==  "controller" 
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Custom App deployed in {{ item.item.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ appdeployment.results }}"
+  loop_control:
+    label: 'appdeployment'
+  when: item.changed == true 
+
+
+#For worker
+- name: installing custom helmchart deployment on worker
+  tags: 
+  - custom_helm_deployment
+  ignore_errors: yes
+  with_nested:
+  - "{{ customAppDeployment.usingHelmchartsDeployment }}"
+  - "{{ clusters.worker }}"
+  when: item.0.name  ==  item.1.name 
+  kubernetes.core.helm:
+    name: "{{ item.0.release_name }}"
+    chart_version: "{{ item.0.chart_version }}"
+    chart_ref: "{{ item.0.helm_repo_name }}/{{ item.0.release_name }}"
+    release_namespace: "{{ item.0.applicationNs }}" 
+    create_namespace: true  
+    kubeconfig: "{{ item.1.kubeconfig }}"  
+    values_files:
+      - "{{ item.0.helm_values_file }}"
+
+
+- name: wait
+  tags: 
+  - custom_helm_deployment
+  ansible.builtin.pause:
+    seconds: "{{ chart_deploy_timeout }}"
+    
+## status of pods 
+- no_log: true
+  ignore_errors: yes
+  tags: 
+  - custom_helm_deployment
+  with_nested:
+  - "{{ customAppDeployment.usingHelmchartsDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name 
+  shell: kubectl get pods -n {{ item.0.applicationNs }} --kubeconfig="{{ item.1.kubeconfig }}"
+  register: appdeployment
+- name: Verifying custom application pod status on worker cluster
+  tags: 
+  - custom_helm_deployment
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Custom App deployed in {{ item.item.0.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ appdeployment.results }}"
+  loop_control:
+    label: 'appdeployment'
+  when: item.changed == true       

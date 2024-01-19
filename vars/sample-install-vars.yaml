@@ -1,0 +1,676 @@
+---
+### Helm charts details ###
+helm_repo_name: kubeslice
+helm_chart_url: https://kubeslice.aveshalabs.io/repository/kubeslice-helm-ent-stage
+helm_repo_username: ""
+helm_repo_password: ""
+
+### IMP Note - If Your providing enterprise helm chart url then you must need to provide your username and password to create a Imagepullsecret to pull the enterpise images###
+# If your providing Opensource helm chart Url no need to worry about the username and password
+docker_username: username
+docker_password: password
+
+## global_variable
+chart_deploy_timeout: 20            # It will take this timeout period as a wait-time after deploying all helm charts   
+worker_deploy_timeout: 180          # It will take this timeout period as a wait-time after deploying Kubeslice-worker
+slice_deploy_timeout: 200           # It will take this timeout period as a wait-time after deploying sliceconfig
+bookinfo_loadgenerator_value: 100   # it will take this value as a bookinfo load generator user value
+validate_certs: yes                 # It will verify the kubernetes API server’s SSL certificates, if you are using local certificates make this value 'no'
+iperf_testing_BW: 10Mb              # The Bandwidth we use to test the iperf-connectivity 
+operator_pod_restart: false         # If true, it will restart the kubeslice-operator pod after kubeslice-worker installation          
+enable_debug: false                 # If true ,it will describe all nodes and the pods from Controller,UI,Worker and all Deployed application
+istio_chart_version:                #If you keep that value null it will take the latest istio chart version
+
+### Required cluster details ###
+#Note- If you have multiple worker clusters you can add your worker cluster details in below format ##
+
+clusters:
+  controller:
+    kubeconfig: ./files/kubeconfig/dev-1.yaml	
+    projectNamespace: avesha  
+    openshift_cluster: false
+    chart_version:                #If you keep that value null it will take the latest chart version    
+    endpoint:                     #If you keep that value null it will fetch default endpoint from cluster
+    image:                        #If null it will take the latest values
+    tag:                          #If null it will take the latest values
+    Kubeslice_ui:
+      chart_version:              #If you keep that value null it will take the latest chart version
+      service_type:               #If null it will take "Loadbalancer" as a default value
+      image:                      #If null it will take the latest values
+      tag:                        #If null it will take the latest values
+
+  worker:
+  - name: worker-1
+    kubeconfig: ./files/kubeconfig/dev-1.yaml
+    openshift_cluster: false
+    chart_version:              #If you keep that value null it will take the latest chart version
+    nodeIp:                     #If you are using cloud clusters no need to provide worker NodeIP only provide NodeIP in Kind and DC clusters
+    endpoint:                   #Default value is Null
+    networkInterface:           #Default value is eth0
+    metrics_insecure:           #Default value is false
+    operator:
+      image:                    #If null it will take the latest values
+      tag:                      #If null it will take the latest values
+
+  - name: worker-2
+    kubeconfig: ./files/kubeconfig/dev-2.yaml
+    openshift_cluster: false
+    chart_version:              #If you keep that value null it will take the latest chart version
+    nodeIp:                     #If you are using cloud clusters no need to provide worker NodeIP only provide NodeIP in Kind and DC clusters
+    endpoint:                   #Default value is Null
+    networkInterface:           #Default value is eth0
+    metrics_insecure:           #Default value is false
+    operator:
+      image:                    #If null it will take the latest values
+      tag:                      #If null it will take the latest values
+
+### Slice config creation ###
+slices:
+  - name: iperf-slice
+    workerClusters:
+      - worker-1
+      - worker-2
+    sliceSubnet: 192.168.0.0/16
+    sliceGatewayServiceType: 
+      # - cluster: worker-1
+      #   type: LoadBalancer   
+      #   protocol: TCP     
+      # - cluster: worker-2
+      #   type: LoadBalancer   
+      #   protocol: TCP  
+    priority: 3 
+    bandwidthCeilingKbps: 20480
+    bandwidthGuaranteedKbps: 10240
+    applicationNamespaces:
+    - namespace: iperf
+      clusters:
+      - worker-1
+      - worker-2    
+    externalGatewayConfig:       # If you dont want to deploy slice with externalGatewayConfig keep this value blank 
+
+  - name: bookinfo-slice
+    workerClusters:
+      - worker-1
+      - worker-2
+    sliceSubnet: 192.168.0.0/16 
+    sliceGatewayServiceType: 
+      # - cluster: worker-1
+      #   type: LoadBalancer   
+      #   protocol: TCP     
+      # - cluster: worker-2
+      #   type: LoadBalancer   
+      #   protocol: TCP  
+    priority: 3 
+    bandwidthCeilingKbps: 20480
+    bandwidthGuaranteedKbps: 10240
+    applicationNamespaces:
+    - namespace: bookinfo
+      clusters:
+      - worker-1
+      - worker-2
+    externalGatewayConfig: 
+    - ingress:
+        enabled: false 
+      egress:
+        enabled: true  
+      gatewayType: istio 
+      clusters:
+        - worker-1
+    - ingress:
+        enabled: true
+      egress:
+        enabled: false 
+      gatewayType: istio 
+      clusters:
+        - worker-2
+
+  # - name: obs-slice
+  #   workerClusters:
+  #     - worker-1
+  #     - worker-2
+  #   sliceSubnet: 192.168.0.0/16
+  #   sliceGatewayServiceType: 
+  #   priority: 3 
+  #   bandwidthCeilingKbps: 20480
+  #   bandwidthGuaranteedKbps: 10240
+  #   applicationNamespaces:
+  #   - namespace: obs
+  #     clusters:
+  #     - worker-1
+  #     - worker-2    
+  #   externalGatewayConfig:       # If you dont want to deploy slice with externalGatewayConfig keep this value blank
+
+  # - name: boutique-slice
+  #   workerClusters:
+  #     - worker-1
+  #     - worker-2
+  #   sliceSubnet: 192.168.0.0/16
+  #   sliceGatewayServiceType: 
+  #   priority: 3 
+  #   bandwidthCeilingKbps: 20480
+  #   bandwidthGuaranteedKbps: 10240
+  #   applicationNamespaces:
+  #   - namespace: boutique
+  #     clusters:
+  #     - worker-1
+  #     - worker-2    
+  #   externalGatewayConfig:       # If you dont want to deploy slice with externalGatewayConfig keep this value blank
+
+  # - name: cockroach-slice
+  #   workerClusters:
+  #     - worker-1
+  #     - worker-2
+  #     - worker-3
+  #   sliceSubnet: 192.168.0.0/16
+  #   sliceGatewayServiceType: 
+  #   priority: 3
+  #   bandwidthCeilingKbps: 5120
+  #   bandwidthGuaranteedKbps: 2560
+  #   applicationNamespaces:
+  #   - namespace: cockroachdb
+  #     clusters:
+  #     - worker-1
+  #     - worker-2
+  #     - worker-3
+  #   externalGatewayConfig:       # If you dont want to deploy slice with externalGatewayConfig keep this value blank
+
+  # - name: mushop-slice
+  #   workerClusters:
+  #     - worker-1
+  #     - worker-2
+  #   sliceSubnet: 192.168.0.0/16
+  #   sliceGatewayServiceType: 
+  #   priority: 3 
+  #   bandwidthCeilingKbps: 20480
+  #   bandwidthGuaranteedKbps: 10240
+  #   applicationNamespaces:
+  #   - namespace: mushop
+  #     clusters:
+  #     - worker-1
+  #     - worker-2    
+  #   externalGatewayConfig:       # If you dont want to deploy slice with externalGatewayConfig keep this value blank
+
+  # - name: mongodb-slice
+  #   workerClusters:
+  #     - worker-1
+  #     - worker-2
+  #     - worker-3
+  #   sliceSubnet: 192.168.0.0/16
+  #   sliceGatewayServiceType: 
+  #   priority: 1
+  #   bandwidthCeilingKbps: 5120
+  #   bandwidthGuaranteedKbps: 2560
+  #   applicationNamespaces:
+  #   - namespace: mongodb
+  #     clusters:
+  #     - worker-1
+  #     - worker-2
+  #     - worker-3
+  #   externalGatewayConfig:       # If you dont want to deploy slice with externalGatewayConfig keep this value blank
+
+  # - name: kafka-slice
+  #   workerClusters:
+  #     - worker-1
+  #     - worker-2
+  #     - worker-3
+  #   sliceSubnet: 192.168.0.0/16
+  #   sliceGatewayServiceType: 
+  #   priority: 3 
+  #   bandwidthCeilingKbps: 20480
+  #   bandwidthGuaranteedKbps: 10240
+  #   applicationNamespaces:
+  #   - namespace: kafka
+  #     clusters:
+  #     - worker-1
+  #     - worker-2    
+  #     - worker-3
+  #   externalGatewayConfig:       # If you dont want to deploy slice with externalGatewayConfig keep this value blank 
+
+
+## Application Deployment and Service_Export creation ##
+onboardAppsToSlices:
+  iperfDeployment:
+    - name: worker-1
+      iperfClient: true       #iperf-sleep
+      iperfServer: false      #iperf-server
+      applicationNs: iperf
+    - name: worker-2
+      iperfClient: false      #iperf-sleep
+      iperfServer: true       #iperf-server
+      applicationNs: iperf
+
+  bookinfoDeployment:
+    - name: worker-1
+      bookinfoClient: true       #bookinfo-productpage
+      bookinfoServer: false      #bookinfo-details,reviews,rating
+      applicationNs: bookinfo
+    - name: worker-2
+      bookinfoClient: false       #bookinfo-productpage
+      bookinfoServer: true        #bookinfo-details,reviews,rating
+      applicationNs: bookinfo    
+
+  # obsDeployment:
+  #   - name: worker-1
+  #     obsClient: true       #OBS-UI
+  #     obsServer: false      #Streaming-server
+  #     applicationNs: obs
+  #   - name: worker-2
+  #     obsClient: false      #OBS-UI
+  #     obsServer: true       #Streaming-server
+  #     applicationNs: obs
+
+  # boutiqueDeployment:
+  #   - name: worker-1
+  #     boutiqueClient: false       #boutique-frontendServices, productcatalogService, recommendationService, shippingService
+  #     boutiqueServer: true     #boutique-adService,currencyService,emailService,paymentService
+  #     applicationNs: boutique
+  #   - name: worker-2
+  #     boutiqueClient: true     #boutique-frontendServices, productcatalogService, recommendationService, shippingService
+  #     boutiqueServer: false      #boutique-adService,currencyService,emailService,paymentService
+  #     applicationNs: boutique
+
+  # cockroachDBDeployment:
+  #   - name: worker-1
+  #     applicationNs: cockroachdb
+  #     clusterInit: true 
+  #     clusterInitPath: ./files/cockroach-demo/cluster-init.yaml      #cockroachDBClusterinit
+  #     StatefulSetPath: ./files/cockroach-demo/Cluster-1/             #it will cover cockroachDB Statefulset and serviceexport also
+  #   - name: worker-2
+  #     applicationNs: cockroachdb
+  #     clusterInit: false
+  #     clusterInitPath:                                                #cockroachDBClusterinit
+  #     StatefulSetPath: ./files/cockroach-demo/Cluster-2/              #it will cover cockroachDB Statefulset and serviceexport also
+  #   - name: worker-3
+  #     applicationNs: cockroachdb
+  #     clusterInit: false
+  #     clusterInitPath:                                                #cockroachDBClusterinit
+  #     StatefulSetPath: ./files/cockroach-demo/Cluster-3/              #it will cover cockroachDB Statefulset and serviceexport also
+
+  # mushopDeployment:
+  #   - name: worker-1
+  #     applicationNs: mushop
+  #     valuesfilePath: ./files/mushop/cluster1.yaml 
+  #     ATPDatabaseWalletPath: ./files/Wallet_MuShopAgba
+  #     ATPDatabaseAdminPass: MTVEZWVhfUlXI15+bU1WOQ==
+  #     ATPDatabasewalletpass: RjFeTjN5MmVbPmglTlhddg==
+  #     ATPDatabaseServiceName: bXVzaG9wYWdiYV90cA==
+  #   - name: worker-2
+  #     applicationNs: mushop
+  #     valuesfilePath: ./files/mushop/cluster2.yaml  
+  #     ATPDatabaseWalletPath: ./files/Wallet_MuShopAgba
+  #     ATPDatabaseAdminPass: MTVEZWVhfUlXI15+bU1WOQ==
+  #     ATPDatabasewalletpass: RjFeTjN5MmVbPmglTlhddg==
+  #     ATPDatabaseServiceName: bXVzaG9wYWdiYV90cA==
+
+
+### Custom App Deployment ###
+customAppDeployment:  
+  usingManifestDeployement:
+    - name: worker-1
+      manifestFilePath: ./files/pacman/pacman-deployment-svc.yaml
+      applicationNs: mongodb
+
+  # usingHelmchartsDeployment:
+  #   - name: worker-3
+  #     helm_repo_name: aws-ebs-csi-driver
+  #     helm_chart_url: https://kubernetes-sigs.github.io/aws-ebs-csi-driver
+  #     chart_version:                          #If Null, it will take latest chart version
+  #     release_name: aws-ebs-csi-driver 
+  #     helm_values_file:                       #If Null, it will take default values file
+  #     applicationNs: kube-system 
+
+### Service_Export ###
+serviceExport:
+  - name: iperf-server         #Iperf-application serviceexport
+    workerName: worker-2        
+    sliceName: iperf-slice
+    applicationNs: iperf
+    ingressEnabled: false
+    ports:
+    - name: tcp
+      containerPort: 5201
+      protocol: TCP
+    labels:
+      app: iperf-server
+
+  - name: details             #Bookinfo-application serviceexport
+    workerName: worker-2     
+    sliceName: bookinfo-slice
+    applicationNs: bookinfo
+    ingressEnabled: false
+    ports:
+    - name: http
+      containerPort: 9080
+      protocol: TCP
+    labels:
+      app: details
+  - name: reviews            #bookinfo-application serviceexport
+    workerName: worker-2     
+    sliceName: bookinfo-slice
+    applicationNs: bookinfo
+    ingressEnabled: false
+    ports:
+    - name: http
+      containerPort: 9080
+      protocol: TCP
+    labels:
+      app: reviews
+      
+  # - name: stream-server            #obs-application serviceexport
+  #   workerName: worker-2     
+  #   sliceName: obs-slice
+  #   applicationNs: obs
+  #   ingressEnabled: false
+  #   ports:
+  #   - name: tcp
+  #     containerPort: 1935
+  #     protocol: TCP
+  #   labels:
+  #     app: stream-server
+
+  # - name: ad-service           #boutique-application serviceexport
+  #   workerName: worker-1
+  #   sliceName: boutique-slice
+  #   applicationNs: boutique
+  #   ingressEnabled: false
+  #   ports:
+  #   - name: http
+  #     containerPort: 9555
+  #     protocol: TCP
+  #   labels:
+  #     app: adservice
+  #     name: kubeslice-demo
+
+  # - name: currency-service     #boutique-application serviceexport
+  #   workerName: worker-1
+  #   sliceName: boutique-slice
+  #   applicationNs: boutique
+  #   ingressEnabled: false
+  #   ports:
+  #   - name: http
+  #     containerPort: 7000
+  #     protocol: TCP
+  #   labels:
+  #     app: currencyservice
+  #     name: kubeslice-demo
+
+  # - name: payment-service       #boutique-application serviceexport
+  #   workerName: worker-1
+  #   sliceName: boutique-slice
+  #   applicationNs: boutique
+  #   ingressEnabled: false
+  #   ports:
+  #   - name: http
+  #     containerPort: 50051
+  #     protocol: TCP
+  #   labels:
+  #     app: paymentservice
+  #     name: kubeslice-demo
+
+  # - name: email-service        #boutique-application serviceexport
+  #   workerName: worker-1
+  #   sliceName: boutique-slice
+  #   applicationNs: boutique
+  #   ingressEnabled: false
+  #   ports:
+  #   - name: http
+  #     containerPort: 5000
+  #     protocol: TCP
+  #   labels:
+  #     app: emailservice
+  #     name: kubeslice-demo    
+
+  # - name: recommendation-service       #boutique-application serviceexport
+  #   workerName: worker-2
+  #   sliceName: boutique-slice
+  #   applicationNs: boutique
+  #   ingressEnabled: false
+  #   ports:
+  #   - name: http
+  #     containerPort: 8080
+  #     protocol: TCP
+  #   labels:
+  #     app: recommendationservice
+  #     name: kubeslice-demo
+
+  # - name: shipping-service       #boutique-application serviceexport
+  #   workerName: worker-2
+  #   sliceName: boutique-slice
+  #   applicationNs: boutique
+  #   ingressEnabled: false
+  #   ports:
+  #   - name: http
+  #     containerPort: 50051
+  #     protocol: TCP
+  #   labels:
+  #     app: shippingservice
+  #     name: kubeslice-demo
+
+  # - name: productcatalog-service       #boutique-application serviceexport
+  #   workerName: worker-2
+  #   sliceName: boutique-slice
+  #   applicationNs: boutique
+  #   ingressEnabled: false
+  #   ports:
+  #   - name: http
+  #     containerPort: 3550
+  #     protocol: TCP
+  #   labels:
+  #     app: productcatalogservice
+  #     name: kubeslice-demo
+
+  # - name: zookeeper-0        #kafka-application-serviceexport 
+  #   workerName: worker-1
+  #   sliceName: kafka-slice
+  #   applicationNs: kafka
+  #   ingressEnabled: false
+  #   ports:
+  #   - name: client
+  #     containerPort: 2181
+  #     protocol: TCP
+  #   - name: follower
+  #     containerPort: 2888
+  #     protocol: TCP
+  #   - name: leader
+  #     containerPort: 3888
+  #     protocol: TCP
+  #   labels:
+  #    app: zookeeper-cluster
+
+  # - name: zookeeper-1      #kafka-application-serviceexport 
+  #   workerName: worker-2
+  #   sliceName: kafka-slice
+  #   applicationNs: kafka
+  #   ingressEnabled: false
+  #   ports:
+  #   - name: client
+  #     containerPort: 2181
+  #     protocol: TCP
+  #   - name: follower
+  #     containerPort: 2888
+  #     protocol: TCP
+  #   - name: leader
+  #     containerPort: 3888
+  #     protocol: TCP
+  #   labels:
+  #    app: zookeeper-cluster
+
+  # - name: zookeeper-2        #kafka-application-serviceexport 
+  #   workerName: worker-3
+  #   sliceName: kafka-slice
+  #   applicationNs: kafka
+  #   ingressEnabled: false
+  #   ports:
+  #   - name: client
+  #     containerPort: 2181
+  #     protocol: TCP
+  #   - name: follower
+  #     containerPort: 2888
+  #     protocol: TCP
+  #   - name: leader
+  #     containerPort: 3888
+  #     protocol: TCP
+  #   labels:
+  #    app: zookeeper-cluster
+
+  # - name: kafka-cluster-0        #kafka-application-serviceexport 
+  #   workerName: worker-1
+  #   sliceName: kafka-slice
+  #   applicationNs: kafka
+  #   ingressEnabled: false
+  #   ports:
+  #   - name: tcp
+  #     containerPort: 9092
+  #     protocol: TCP
+  #   labels:
+  #    app: kafka-cluster
+
+  # - name: kafka-cluster-1        #kafka-application-serviceexport 
+  #   workerName: worker-2
+  #   sliceName: kafka-slice
+  #   applicationNs: kafka
+  #   ingressEnabled: false
+  #   ports:
+  #   - name: tcp
+  #     containerPort: 9092
+  #     protocol: TCP
+  #   labels:
+  #    app: kafka-cluster
+
+  # - name: kafka-cluster-2        #kafka-application-serviceexport 
+  #   workerName: worker-3
+  #   sliceName: kafka-slice
+  #   applicationNs: kafka
+  #   ingressEnabled: false
+  #   ports:
+  #   - name: tcp
+  #     containerPort: 9092
+  #     protocol: TCP
+  #   labels:
+  #    app: kafka-cluster
+
+
+### Monitoring clusters  ###
+elastic_helm_repo_name: elastic 
+elastic_helm_chart_url: https://helm.elastic.co
+fluent_helm_repo_name: fluent 
+fluent_helm_chart_url: https://fluent.github.io/helm-charts
+prometheus_helm_repo_name: prometheus-community
+prometheus_helm_chart_url: https://prometheus-community.github.io/helm-charts
+grafana_helm_repo_name: grafana
+grafana_helm_chart_url: https://grafana.github.io/helm-charts
+
+monitoring_cluster:
+  elasticsearch:
+  - name: worker-1-elasticsearch
+    workerName: worker-1
+    chart_version: 7.17.3   #If you keep that value null it will take the latest chart version
+    namespace: logging
+    storage_size: 30Gi
+    nodePort: 32000 
+    replicas: 1
+
+  fluent_bit:
+  - name: worker-1-fluent-bit
+    workerName: worker-1
+    chart_version:        #If you keep that value null it will take the latest chart version
+    namespace: logging
+    elasticsearch_name: worker-1-elasticsearch
+    elasticsearch_nodeIP: 34.86.210.96         #elasticsearch-nodeIP
+    elasticsearch_port: 32000
+
+  - name: worker-2-fluent-bit
+    workerName: worker-2
+    chart_version:        #If you keep that value null it will take the latest chart version
+    namespace: logging
+    elasticsearch_name: worker-1-elasticsearch
+    elasticsearch_nodeIP: 34.86.210.96         #elasticsearch-nodeIP
+    elasticsearch_port: 32000
+    
+  kibana:
+  - name: worker-2-kibana
+    workerName: worker-2
+    chart_version: 7.17.3   #If you keep that value null it will take the latest chart version
+    namespace: logging
+    service_type: NodePort  
+    NodePort: 31800                
+    elasticsearch_name: worker-1-elasticsearch
+    elasticsearchURL: "http://34.86.210.96:32000"     #"http://<elasticsearch-nodeIP>:<elasticsearch-nodeport>"
+
+  prometheus:
+  - name: worker-2-prometheus
+    workerName: worker-2	
+    chart_version:        #If you keep that value null it will take the latest chart version
+    namespace: monitoring
+    service_type: NodePort
+    NodePort: 32700
+    kubeStateMetrics_enabled: true             ## If false, kube-state-metrics sub-chart will not be installed
+    alertmanager_enabled: true                ## If false, alertmanager will not be installed
+    alertmanager_url: "http://34.86.201.175:32722"
+    alertmanager_service_type: NodePort
+    alertmanager_NodePort: 32722
+    alertmanager_config: files/alertmanager.yml
+    alerting_rules_config: files/alerting_rules.yml
+    prometheus_config: files/prometheus.yml
+  - name: worker-3-prometheus
+    workerName: worker-3	
+    chart_version:        #If you keep that value null it will take the latest chart version
+    namespace: monitoring
+    service_type: NodePort
+    NodePort: 32700
+    kubeStateMetrics_enabled: true             ## If false, kube-state-metrics sub-chart will not be installed
+    alertmanager_enabled: true                ## If false, alertmanager will not be installed
+    alertmanager_url: "http://34.86.201.175:32722"
+    alertmanager_service_type: NodePort
+    alertmanager_NodePort: 32722
+    alertmanager_config: files/alertmanager.yml
+    alerting_rules_config: files/alerting_rules.yml
+    prometheus_config: files/prometheus.yml
+
+  grafana:
+  - name: worker-2-grafana
+    workerName: worker-2	
+    namespace: monitoring
+    chart_version:        #If you keep that value null it will take the latest chart version
+    service_type: NodePort 
+    NodePort: 30000 
+    grafana_datasources_config: files/grafana-datasources.yaml
+    alerting_rules_config: files/grafana-alerting-rules.yaml
+
+### MongoDB clusters  ###
+mongodb_helm_repo_name: mongodb 
+mongodb_helm_chart_url: https://mongodb.github.io/helm-charts
+
+mongodb_cluster:
+  - name: mongodb-member-cluster-1
+    mongodb_master: true
+    workerName: worker-1
+    chart_version: 1.16.3             #If you keep that value null it will take the latest chart version
+    operator_namespace: mongodb-operator
+    namespace: mongodb
+#below values only needed when above mongodb_master paramater is true    
+    Ops_manager_service_type: NodePort 
+    MDB_version: 6.0.2-ent  #MongoDB Replica-set Version
+    #MongoDB Ops Manager secret values 
+    username: "aveshadev@aveshasystems.com"
+    password: "avesha@2023"
+    first_name: "Avesha"
+    last_name: "Systems"
+    #After accessing Ops-manager you need to create Public and private key and paste it below
+    publicKey: ""
+    privateKey: ""
+    orgId: ""
+
+  - name: mongodb-member-cluster-2
+    mongodb_master: false
+    workerName: worker-2
+    chart_version: 1.16.3             #If you keep that value null it will take the latest chart version
+    operator_namespace: mongodb-operator
+    namespace: mongodb
+
+  - name: mongodb-member-cluster-3
+    mongodb_master: false
+    workerName: worker-3
+    chart_version: 1.16.3             #If you keep that value null it will take the latest chart version
+    operator_namespace: mongodb-operator
+    namespace: mongodb

@@ -1,0 +1,989 @@
+---
+- name: Installation playbook
+  hosts: localhost
+  connection: local
+  vars_files:
+    - vars/destroy-vars.yaml
+
+
+  tasks:
+
+  - debug:
+      msg:     
+      - '###################################################################'
+      - '#              Deleting serviceexport                             #'
+      - '###################################################################'
+
+  - name: deleting serviceexport on server worker
+    ignore_errors: yes    
+    tags:
+    - serviceexport
+    with_nested:
+    - "{{ serviceExport }}"
+    - "{{ clusters.worker }}"
+    kubernetes.core.k8s:
+      state: absent
+      namespace: "{{ item.0.applicationNs }}"
+      kubeconfig: "{{ item.1.kubeconfig }}"
+      definition: |
+        apiVersion: networking.kubeslice.io/v1beta1
+        kind: ServiceExport
+        metadata:
+          name: {{ item.0.name }}
+        spec:
+          slice: {{ item.0.sliceName }}
+          selector:
+            matchLabels: {{ item.0.labels }}
+          ports: {{ item.0.ports}}
+    when: item.0.workerName  ==  item.1.name
+
+
+  - debug:
+      msg:     
+      - '###################################################################'
+      - '#            deleting custom deployed application                 #'
+      - '###################################################################'
+
+  #controller
+  - name: deploy custom application on controller cluster 
+    tags:
+    - customapp
+    ignore_errors: yes
+    loop: "{{ customAppDeployment.usingManifestDeployement }}"
+    loop_control:
+      index_var: item[] 
+    when: item.name  ==  "controller" 
+    kubernetes.core.k8s:
+      state: absent
+      wait: true
+      wait_timeout: 120
+      namespace: "{{ item.applicationNs }}"
+      kubeconfig: "{{ clusters.controller.kubeconfig }}" 
+      validate_certs: "{{ validate_certs }}"
+      src: "{{ item.manifestFilePath }}"
+
+  #Worker
+  - name: deploy custom application on worker cluster
+    tags:
+    - customapp
+    ignore_errors: yes
+    with_nested:
+    - "{{ customAppDeployment.usingManifestDeployement }}"
+    - "{{ clusters.worker }}"
+    when: 
+    - item.0.name  ==  item.1.name
+    kubernetes.core.k8s:
+      state: absent
+      wait: true
+      wait_timeout: 120
+      namespace: "{{ item.0.applicationNs }}"
+      kubeconfig: "{{ item.1.kubeconfig }}"
+      validate_certs: "{{ validate_certs }}"
+      src: "{{ item.0.manifestFilePath }}"
+
+
+  #For controller
+  - name: installing custom helmchart deployment on controller
+    tags:
+    - customapp
+    ignore_errors: yes
+    loop: "{{ customAppDeployment.usingHelmchartsDeployment }}"
+    loop_control:
+      index_var: item[] 
+    when: item.name  ==  "controller" 
+    kubernetes.core.helm:
+      state: absent
+      name: "{{ item.release_name }}"
+      chart_version: "{{ item.chart_version }}"
+      chart_ref: "{{ item.helm_repo_name }}/{{ item.release_name }}"
+      release_namespace: "{{ item.applicationNs }}" 
+      create_namespace: true  
+      kubeconfig: "{{ clusters.controller.kubeconfig }}"   
+      values_files:
+        - "{{ item.helm_values_file }}"
+
+  #For worker
+  - name: installing custom helmchart deployment on worker
+    tags:
+    - customapp
+    ignore_errors: yes
+    with_nested:
+    - "{{ customAppDeployment.usingHelmchartsDeployment }}"
+    - "{{ clusters.worker }}"
+    when: item.0.name  ==  item.1.name 
+    kubernetes.core.helm:
+      state: absent
+      name: "{{ item.0.release_name }}"
+      chart_version: "{{ item.0.chart_version }}"
+      chart_ref: "{{ item.0.helm_repo_name }}/{{ item.0.release_name }}"
+      release_namespace: "{{ item.0.applicationNs }}" 
+      create_namespace: true  
+      kubeconfig: "{{ item.1.kubeconfig }}"  
+      values_files:
+        - "{{ item.0.helm_values_file }}"
+
+  - debug:
+      msg:     
+      - '###################################################################'
+      - '#            deleting demo application                           #'
+      - '###################################################################'
+
+#Iperf 
+  - name: deleting iperf-sleep on worker
+    ignore_errors: yes
+    tags:
+    - iperf
+    with_nested:
+    - "{{ onboardAppsToSlices.iperfDeployment }}"
+    - "{{ clusters.worker }}"
+    when: 
+    - item.0.iperfClient == true
+    - item.0.name  ==  item.1.name
+    kubernetes.core.k8s:
+      state: absent
+      namespace: "{{ item.0.applicationNs }}"
+      kubeconfig: "{{ item.1.kubeconfig }}"
+      validate_certs: "{{ validate_certs }}"
+      src: files/iperf/iperf-sleep.yaml
+
+  - name: deleting iperf-server on worker
+    ignore_errors: yes
+    tags:
+    - iperf
+    with_nested:
+    - "{{ onboardAppsToSlices.iperfDeployment }}"
+    - "{{ clusters.worker }}"
+    when: 
+    - item.0.iperfServer == true
+    - item.0.name  ==  item.1.name
+    kubernetes.core.k8s:
+      state: absent
+      namespace: "{{ item.0.applicationNs }}"
+      kubeconfig: "{{ item.1.kubeconfig }}"
+      validate_certs: "{{ validate_certs }}"
+      src: files/iperf/iperf-server.yaml
+
+#Bookinfo
+  - name: deleting bookinfo productpage on worker
+    ignore_errors: yes
+    tags:
+    - bookinfo
+    with_nested:
+    - "{{ onboardAppsToSlices.bookinfoDeployment }}"
+    - "{{ clusters.worker }}"
+    when: 
+    - item.0.bookinfoClient == true
+    - item.0.name  ==  item.1.name 
+    kubernetes.core.k8s:
+      state: absent
+      namespace: "{{ item.0.applicationNs }}"
+      kubeconfig: "{{ item.1.kubeconfig }}"
+      validate_certs: "{{ validate_certs }}"
+      src: files/bookinfo/productpage.yaml
+
+
+  - name: deleting bookinfo details service on worker
+    ignore_errors: yes
+    tags:
+    - bookinfo
+    with_nested:
+    - "{{ onboardAppsToSlices.bookinfoDeployment }}"
+    - "{{ clusters.worker }}"
+    when: 
+    - item.0.bookinfoServer == true
+    - item.0.name  ==  item.1.name
+    kubernetes.core.k8s:
+      state: absent
+      namespace: "{{ item.0.applicationNs }}"
+      kubeconfig: "{{ item.1.kubeconfig }}"
+      validate_certs: "{{ validate_certs }}"
+      src: files/bookinfo/details.yaml
+
+  - name: deleting bookinfo ratings service on worker
+    ignore_errors: yes
+    tags:
+    - bookinfo
+    with_nested:
+    - "{{ onboardAppsToSlices.bookinfoDeployment }}"
+    - "{{ clusters.worker }}"
+    when: 
+    - item.0.bookinfoServer == true
+    - item.0.name  ==  item.1.name
+    kubernetes.core.k8s:
+      state: absent
+      namespace: "{{ item.0.applicationNs }}"
+      kubeconfig: "{{ item.1.kubeconfig }}"
+      validate_certs: "{{ validate_certs }}"
+      src: files/bookinfo/ratings.yaml
+
+  - name: deleting bookinfo reviews service on worker
+    ignore_errors: yes
+    tags:
+    - bookinfo
+    with_nested:
+    - "{{ onboardAppsToSlices.bookinfoDeployment }}"
+    - "{{ clusters.worker }}"
+    when: 
+    - item.0.bookinfoServer == true
+    - item.0.name  ==  item.1.name
+    kubernetes.core.k8s:
+      state: absent
+      namespace: "{{ item.0.applicationNs }}"
+      kubeconfig: "{{ item.1.kubeconfig }}"
+      validate_certs: "{{ validate_certs }}"
+      src: files/bookinfo/reviews.yaml
+
+# OBS
+  - name: deleting obs-ui on worker
+    ignore_errors: yes
+    tags:
+    - obs
+    with_nested:
+    - "{{ onboardAppsToSlices.obsDeployment }}"
+    - "{{ clusters.worker }}"
+    when: 
+    - item.0.obsClient == true
+    - item.0.name  ==  item.1.name
+    kubernetes.core.k8s:
+      state: absent
+      namespace: "{{ item.0.applicationNs }}"
+      kubeconfig: "{{ item.1.kubeconfig }}"
+      validate_certs: "{{ validate_certs }}"
+      src: files/obs/obs-studio.yaml
+
+  - name: deleting obs-server on worker
+    ignore_errors: yes
+    tags:
+    - obs
+    with_nested:
+    - "{{ onboardAppsToSlices.obsDeployment }}"
+    - "{{ clusters.worker }}"
+    when: 
+    - item.0.obsServer == true
+    - item.0.name  ==  item.1.name
+    kubernetes.core.k8s:
+      state: absent
+      namespace: "{{ item.0.applicationNs }}"
+      kubeconfig: "{{ item.1.kubeconfig }}"
+      validate_certs: "{{ validate_certs }}"
+      src: files/obs/stream-server.yaml
+
+#Boutique
+  - name: deleting boutique-frontendServices on worker
+    ignore_errors: yes
+    tags:
+    - boutique
+    with_nested:
+    - "{{ onboardAppsToSlices.boutiqueDeployment }}"
+    - "{{ clusters.worker }}"
+    when: 
+    - item.0.boutiqueClient == true
+    - item.0.name  ==  item.1.name
+    kubernetes.core.k8s:
+      state: absent
+      namespace: "{{ item.0.applicationNs }}"
+      kubeconfig: "{{ item.1.kubeconfig }}"
+      validate_certs: "{{ validate_certs }}"
+      src: files/boutique/second-cluster/frontendServices.yaml
+
+  - name: deleting boutique-productcatalogService on worker
+    ignore_errors: yes
+    tags:
+    - boutique
+    with_nested:
+    - "{{ onboardAppsToSlices.boutiqueDeployment }}"
+    - "{{ clusters.worker }}"
+    when: 
+    - item.0.boutiqueClient == true
+    - item.0.name  ==  item.1.name
+    kubernetes.core.k8s:
+      state: absent
+      namespace: "{{ item.0.applicationNs }}"
+      kubeconfig: "{{ item.1.kubeconfig }}"
+      validate_certs: "{{ validate_certs }}"
+      src: files/boutique/second-cluster/productcatalogService.yaml
+
+  - name: deleting boutique-recommendationService on worker
+    ignore_errors: yes
+    tags:
+    - boutique
+    with_nested:
+    - "{{ onboardAppsToSlices.boutiqueDeployment }}"
+    - "{{ clusters.worker }}"
+    when: 
+    - item.0.boutiqueClient == true
+    - item.0.name  ==  item.1.name
+    kubernetes.core.k8s:
+      state: absent
+      namespace: "{{ item.0.applicationNs }}"
+      kubeconfig: "{{ item.1.kubeconfig }}"
+      validate_certs: "{{ validate_certs }}"
+      src: files/boutique/second-cluster/recommendationService.yaml
+
+  - name: deleting boutique-shippingService on worker
+    ignore_errors: yes
+    tags:
+    - boutique
+    with_nested:
+    - "{{ onboardAppsToSlices.boutiqueDeployment }}"
+    - "{{ clusters.worker }}"
+    when: 
+    - item.0.boutiqueClient == true
+    - item.0.name  ==  item.1.name
+    kubernetes.core.k8s:
+      state: absent
+      namespace: "{{ item.0.applicationNs }}"
+      kubeconfig: "{{ item.1.kubeconfig }}"
+      validate_certs: "{{ validate_certs }}"
+      src: files/boutique/second-cluster/shippingService.yaml    
+
+
+
+  - name: deleting boutique-adService on worker
+    ignore_errors: yes
+    tags:
+    - boutique
+    with_nested:
+    - "{{ onboardAppsToSlices.boutiqueDeployment }}"
+    - "{{ clusters.worker }}"
+    when: 
+    - item.0.boutiqueServer == true
+    - item.0.name  ==  item.1.name
+    kubernetes.core.k8s:
+      state: absent
+      namespace: "{{ item.0.applicationNs }}"
+      kubeconfig: "{{ item.1.kubeconfig }}"
+      validate_certs: "{{ validate_certs }}"
+      src: files/boutique/first-cluster/adService.yaml
+
+  - name: deleting boutique-currencyService on worker
+    ignore_errors: yes
+    tags:
+    - boutique
+    with_nested:
+    - "{{ onboardAppsToSlices.boutiqueDeployment }}"
+    - "{{ clusters.worker }}"
+    when: 
+    - item.0.boutiqueServer == true
+    - item.0.name  ==  item.1.name
+    kubernetes.core.k8s:
+      state: absent
+      namespace: "{{ item.0.applicationNs }}"
+      kubeconfig: "{{ item.1.kubeconfig }}"
+      validate_certs: "{{ validate_certs }}"
+      src: files/boutique/first-cluster/currencyService.yaml
+
+  - name: deleting boutique-emailService on worker
+    ignore_errors: yes
+    tags:
+    - boutique
+    with_nested:
+    - "{{ onboardAppsToSlices.boutiqueDeployment }}"
+    - "{{ clusters.worker }}"
+    when: 
+    - item.0.boutiqueServer == true
+    - item.0.name  ==  item.1.name
+    kubernetes.core.k8s:
+      state: absent
+      namespace: "{{ item.0.applicationNs }}"
+      kubeconfig: "{{ item.1.kubeconfig }}"
+      validate_certs: "{{ validate_certs }}"
+      src: files/boutique/first-cluster/emailService.yaml
+
+  - name: deleting boutique-paymentService on worker
+    ignore_errors: yes
+    tags:
+    - boutique
+    with_nested:
+    - "{{ onboardAppsToSlices.boutiqueDeployment }}"
+    - "{{ clusters.worker }}"
+    when: 
+    - item.0.boutiqueServer == true
+    - item.0.name  ==  item.1.name
+    kubernetes.core.k8s:
+      state: absent
+      namespace: "{{ item.0.applicationNs }}"
+      kubeconfig: "{{ item.1.kubeconfig }}"
+      validate_certs: "{{ validate_certs }}"
+      src: files/boutique/first-cluster/paymentService.yaml
+
+#cockroachDB
+
+  - name: deleting cockroachDB statefulset on worker
+    ignore_errors: yes
+    tags:
+    - cockroachDB
+    with_nested:
+    - "{{ onboardAppsToSlices.cockroachDBDeployment }}"
+    - "{{ clusters.worker }}"
+    when: 
+    - item.0.name  ==  item.1.name
+    kubernetes.core.k8s:
+      state: absent
+      namespace: "{{ item.0.applicationNs }}"
+      kubeconfig: "{{ item.1.kubeconfig }}"
+      validate_certs: "{{ validate_certs }}"
+      src: "{{ item.0.StatefulSetPath }}"
+
+  - name: deleting cockroachDB ClusterInit on worker
+    ignore_errors: yes
+    tags:
+    - cockroachDB
+    with_nested:
+    - "{{ onboardAppsToSlices.cockroachDBDeployment }}"
+    - "{{ clusters.worker }}"
+    when: 
+    - item.0.clusterInit == true
+    - item.0.name  ==  item.1.name
+    kubernetes.core.k8s:
+      state: absent
+      namespace: "{{ item.0.applicationNs }}"
+      kubeconfig: "{{ item.1.kubeconfig }}"
+      validate_certs: "{{ validate_certs }}"
+      src: "{{ item.0.clusterInitPath }}"
+
+#Mushop
+  - name: deleting Mushop Application on worker cluster
+    ignore_errors: yes
+    tags:
+    - mushop
+    with_nested:
+    - "{{ onboardAppsToSlices.mushopDeployment }}"
+    - "{{ clusters.worker }}"
+    when: 
+    - item.0.name  ==  item.1.name
+    kubernetes.core.helm:
+      state: absent
+      name: "{{ item.0.applicationNs }}"
+      chart_ref: "files/mushop"
+      release_namespace: "{{ item.0.applicationNs }}"
+      kubeconfig: "{{ item.1.kubeconfig }}"
+
+- name: wait
+  ansible.builtin.pause:
+    seconds: 20
+
+  - tags:
+    - sliceconfig
+    debug:
+      msg:     
+      - '###################################################################'
+      - '#        Offboarding namespace and delete the slices              #'
+      - '###################################################################'
+
+  - name: Offboarding namespace from sliceconfig 
+    ignore_errors: yes
+    no_log: true
+    tags:
+    - sliceconfig
+    loop: "{{ slices }}"
+    loop_control:
+      index_var: item[]
+    kubernetes.core.k8s:
+      state: present
+      namespace: kubeslice-{{ clusters.controller.projectNamespace }}
+      kubeconfig: "{{ clusters.controller.kubeconfig }}"
+      validate_certs: "{{ validate_certs }}"
+      definition: |
+        apiVersion: controller.kubeslice.io/v1alpha1
+        kind: SliceConfig
+        metadata: 
+          name: {{ item.name }}
+          namespace: kubeslice-{{ clusters.controller.projectNamespace }}
+        spec:
+          sliceSubnet: {{ item.sliceSubnet }}
+          sliceType: Application
+          sliceGatewayProvider:
+            sliceGatewayType: OpenVPN
+            sliceCaType: Local
+          sliceIpamType: Local
+          clusters: {{ item.workerClusters }}
+          qosProfileDetails:
+            queueType: HTB
+            priority: {{ item.priority }}                     #keep integer values from 0 to 3
+            tcType: BANDWIDTH_CONTROL
+            bandwidthCeilingKbps: {{ item.bandwidthCeilingKbps }}
+            bandwidthGuaranteedKbps: {{ item.bandwidthGuaranteedKbps }}
+            dscpClass: AF11
+          namespaceIsolationProfile:
+            applicationNamespaces: 
+            namespaceIsolationProfile:
+            isolationEnabled: false                   
+            allowedNamespaces:
+            - namespace: kube-system
+              clusters:
+              - '*'
+          externalGatewayConfig: {{ item.externalGatewayConfig }}  
+
+  - name: wait 
+    ansible.builtin.pause:
+      seconds: 20
+
+  - name: deleting sliceconfig 
+    tags:
+    - sliceconfig
+    loop: "{{ slices }}"
+    loop_control:
+      index_var: item[]
+    kubernetes.core.k8s:
+      state: absent
+      namespace: kubeslice-{{ clusters.controller.projectNamespace }}
+      kubeconfig: "{{ clusters.controller.kubeconfig }}"
+      validate_certs: "{{ validate_certs }}"
+      definition: |
+        apiVersion: controller.kubeslice.io/v1alpha1
+        kind: SliceConfig
+        metadata: 
+          name: {{ item.name }}
+          namespace: kubeslice-{{ clusters.controller.projectNamespace }}
+        spec:
+          sliceSubnet: {{ item.sliceSubnet }}
+          sliceType: Application
+          sliceGatewayProvider:
+            sliceGatewayType: OpenVPN
+            sliceCaType: Local
+          sliceIpamType: Local
+          clusters: {{ item.workerClusters }}
+          qosProfileDetails:
+            queueType: HTB
+            priority: {{ item.priority }}                     #keep integer values from 0 to 3
+            tcType: BANDWIDTH_CONTROL
+            bandwidthCeilingKbps: {{ item.bandwidthCeilingKbps }}
+            bandwidthGuaranteedKbps: {{ item.bandwidthGuaranteedKbps }}
+            dscpClass: AF11
+          namespaceIsolationProfile:
+            applicationNamespaces: 
+            namespaceIsolationProfile:
+            isolationEnabled: false                   
+            allowedNamespaces:
+            - namespace: kube-system
+              clusters:
+              - '*'
+          externalGatewayConfig: {{ item.externalGatewayConfig }} 
+
+  - debug:
+      msg:     
+      - '###################################################################'
+      - '#             uninstalling istio and Worker-operator              #'
+      - '###################################################################'
+
+  - name: uninstalling istio-base on worker cluster
+    loop: "{{ clusters.worker }}"
+    loop_control:
+      index_var: item[]
+    kubernetes.core.helm:
+      name: istio-base
+      state: absent
+      release_namespace: istio-system 
+      kubeconfig: "{{ item.kubeconfig }}"
+    tags: 
+    - istio
+      
+  - name: uninstalling istio-discovery on worker
+    loop: "{{ clusters.worker }}"
+    loop_control:
+      index_var: item[]
+    kubernetes.core.helm:
+      name: istio-discovery
+      state: absent
+      release_namespace: istio-system 
+      kubeconfig: "{{ item.kubeconfig }}"  
+    tags:
+    - istio   
+
+  - name: uninstalling kubeslice operator on worker
+    tags: 
+    - kubeslice-worker
+    loop: "{{ clusters.worker }}"
+    loop_control:
+      index_var: item[]
+    kubernetes.core.helm:
+      name: kubeslice-worker
+      state: absent
+      release_namespace: kubeslice-system  
+      kubeconfig: "{{ item.kubeconfig }}" 
+
+  - tags:
+    - worker-registertion
+    debug:
+      msg:     
+      - '###################################################################'
+      - '#             Deregistering Worker-clusters                        #'
+      - '###################################################################'
+
+        
+  - name: deregistring worker cluster with controller
+    when : item.nodeIp == None
+    tags:
+    - worker-registertion
+    loop: "{{ clusters.worker }}"
+    loop_control:
+      index_var: item[]
+    kubernetes.core.k8s:
+      kubeconfig: "{{ clusters.controller.kubeconfig }}"
+      validate_certs: "{{ validate_certs }}"
+      state: absent
+      namespace: kubeslice-{{ clusters.controller.projectNamespace }}
+      definition: |
+        apiVersion: controller.kubeslice.io/v1alpha1
+        kind: Cluster
+        metadata:
+          name: {{ item.name }}
+          namespace: kubeslice-{{ clusters.controller.projectNamespace }}
+        spec:
+          networkInterface: {{ item.networkInterface | default('eth0', true) }}
+
+  - name: deregistring worker cluster with controller
+    when : item.nodeIp != None
+    tags:
+    - worker-registertion
+    loop: "{{ clusters.worker }}"
+    loop_control:
+      index_var: item[]
+    kubernetes.core.k8s:
+      kubeconfig: "{{ clusters.controller.kubeconfig }}"
+      validate_certs: "{{ validate_certs }}"
+      state: absent
+      namespace: kubeslice-{{ clusters.controller.projectNamespace }}
+      definition: |
+        apiVersion: controller.kubeslice.io/v1alpha1
+        kind: Cluster
+        metadata:
+          name: {{ item.name }}
+          namespace: kubeslice-{{ clusters.controller.projectNamespace }}
+        spec:
+          networkInterface: {{ item.networkInterface | default('eth0', true) }}
+          nodeIP: {{ item.nodeIp }}
+
+  - tags:
+    - project
+    debug:
+      msg:     
+      - '###################################################################'
+      - '#                      Deleting project                            #'
+      - '###################################################################'
+
+
+  - name: deleting a Project namespace 
+    tags:
+    - project
+    kubernetes.core.k8s:
+      state: absent
+      namespace: kubeslice-controller
+      kubeconfig: "{{ clusters.controller.kubeconfig }}"
+      validate_certs: "{{ validate_certs }}"
+      definition: |
+        apiVersion: controller.kubeslice.io/v1alpha1
+        kind: Project
+        metadata:
+          name: {{ clusters.controller.projectNamespace }}
+          namespace: kubeslice-controller
+        spec:
+          serviceAccount:
+            readWrite:
+              - admin-ui
+
+
+  - debug:
+      msg:     
+      - '###################################################################'
+      - '#    uninstalling kubeslice-controller , UI and cert-manager      #'
+      - '###################################################################'
+
+  - name: uninstalling kubeslice-controller
+    tags:
+    - kubeslice-controller
+    kubernetes.core.helm:
+      name: kubeslice-controller
+      state: absent
+      release_namespace: kubeslice-controller 
+      kubeconfig: "{{ clusters.controller.kubeconfig }}"
+
+  - name: uninstalling kubeslice-UI-manager
+    tags:
+    - kubeslice-ui
+    kubernetes.core.helm:
+      name: kubeslice-ui
+      state: absent
+      release_namespace: kubeslice-controller 
+      kubeconfig: "{{ clusters.controller.kubeconfig }}"
+
+  - name: uninstalling cert-manager chart
+    tags:
+    - cert-manager
+    kubernetes.core.helm:
+      name: cert-manager
+      state: absent
+      release_namespace: cert-manager
+      kubeconfig: "{{ clusters.controller.kubeconfig }}"
+
+#   - tags: 
+#     - controller-crd    
+#     - worker-crd
+#     debug:
+#       msg:     
+#       - '###################################################################'
+#       - '#                    Deleting CRD                                 #'
+#       - '###################################################################'
+
+#   - name: deleting controller cluster CRD
+#     no_log: true  
+#     ignore_errors: yes
+#     tags:
+#     - controller-crd    
+#     shell: |
+#       kubectl delete crd {{ item }} --kubeconfig {{ clusters.controller.kubeconfig }}
+#     with_items:
+#       - clusters.controller.kubeslice.io
+#       - projects.controller.kubeslice.io
+#       - serviceexportconfigs.controller.kubeslice.io
+#       - servimports.networking.kubeslice.io
+#       - sliceconfigs.controller.kubeslice.io
+#       - sliceqosconfigs.controller.kubeslice.io
+#       - sliceresourcequotaconfigs.controller.kubeslice.io
+#       - sliceresourcequotas.nceexports.networking.kubeslice.io
+#       - serviceietworking.kubeslice.io
+#       - slicerolebindings.controller.kubeslice.io
+#       - sliceroletemplates.controller.kubeslice.io
+#       - workerserviceimports.worker.kubeslice.io
+#       - workersliceconfigs.worker.kubeslice.io
+#       - workerslicegateways.worker.kubeslice.io
+#       - workersliceresourcequotas.worker.kubeslice.io
+#       - workerslicerolebindings.worker.kubeslice.io
+
+
+#   - name: deleting worker cluster CRD
+#     no_log: true
+#     ignore_errors: yes
+#     tags:
+#     - worker-crd     
+#     loop: "{{ clusters.worker }}"
+#     shell: |
+#       kubectl delete crd serviceexports.networking.kubeslice.io --kubeconfig {{ item.kubeconfig }}
+
+#   - name: deleting worker cluster CRD
+#     no_log: true
+#     ignore_errors: yes
+#     tags:
+#     - worker-crd     
+#     loop: "{{ clusters.worker }}"
+#     shell: |
+#       kubectl delete crd serviceimports.networking.kubeslice.io --kubeconfig {{ item.kubeconfig }}
+
+#   - name: deleting worker cluster CRD
+#     no_log: true
+#     ignore_errors: yes
+#     tags:
+#     - worker-crd     
+#     loop: "{{ clusters.worker }}"
+#     shell: |
+#       kubectl delete crd slicegateways.networking.kubeslice.io --kubeconfig {{ item.kubeconfig }}
+
+#   - name: deleting worker cluster CRD
+#     no_log: true
+#     ignore_errors: yes
+#     tags:
+#     - worker-crd     
+#     loop: "{{ clusters.worker }}"
+#     shell: |
+#       kubectl delete crd slicenodeaffinities.networking.kubeslice.io --kubeconfig {{ item.kubeconfig }}
+
+#   - name: deleting worker cluster CRD
+#     no_log: true
+#     ignore_errors: yes
+#     tags:
+#     - worker-crd     
+#     loop: "{{ clusters.worker }}"
+#     shell: |
+#       kubectl delete crd sliceresourcequotas.networking.kubeslice.io --kubeconfig {{ item.kubeconfig }}
+
+#   - name: deleting worker cluster CRD
+#     no_log: true
+#     ignore_errors: yes
+#     tags:
+#     - worker-crd     
+#     loop: "{{ clusters.worker }}"
+#     shell: |
+#       kubectl delete crd slicerolebindings.networking.kubeslice.io --kubeconfig {{ item.kubeconfig }}
+
+#   - name: deleting worker cluster CRD
+#     no_log: true
+#     ignore_errors: yes
+#     tags:
+#     - worker-crd     
+#     loop: "{{ clusters.worker }}"
+#     shell: |
+#       kubectl delete crd slices.networking.kubeslice.io --kubeconfig {{ item.kubeconfig }}
+
+#   - tags: 
+#     - monitoring
+#     debug:
+#       msg:     
+#       - '###################################################################'
+#       - '#                 deleting monitoring cluster                     #'
+#       - '###################################################################'
+
+# #Elasticsearch
+#   - name: uninstalling Elasticsearch for controller
+#     ignore_errors: yes
+#     loop: "{{ monitoring_cluster.elasticsearch }}"
+#     loop_control:
+#       index_var: item[]
+#     when: item.workerName  ==  "controller"
+#     kubernetes.core.helm:
+#       state: absent
+#       name: elasticsearch
+#       chart_version: "{{ item.chart_version }}"
+#       release_namespace: "{{ item.namespace }}" 
+#       kubeconfig: "{{ clusters.controller.kubeconfig }}"  
+#     tags:
+#     - elasticsearch
+#     - monitoring
+
+#   - name: uninstalling Elasticsearch for worker
+#     ignore_errors: yes
+#     with_nested:
+#     - "{{ monitoring_cluster.elasticsearch }}"
+#     - "{{ clusters.worker }}"
+#     when: item.0.workerName  ==  item.1.name 
+#     kubernetes.core.helm:
+#       state: absent
+#       name: elasticsearch
+#       chart_version: "{{ item.0.chart_version }}"
+#       release_namespace: "{{ item.0.namespace }}" 
+#       kubeconfig: "{{ item.1.kubeconfig }}"  
+#     tags:
+#     - elasticsearch
+#     - monitoring
+
+# #Kibana
+#   - name: uninstalling kibana for controller
+#     ignore_errors: yes
+#     loop: "{{ monitoring_cluster.kibana }}"
+#     loop_control:
+#       index_var: item[]
+#     when: item.workerName  ==  "controller"
+#     kubernetes.core.helm:
+#       state: absent
+#       name: kibana
+#       chart_version: "{{ item.chart_version }}"
+#       release_namespace: "{{ item.namespace }}"  
+#       kubeconfig: "{{ clusters.controller.kubeconfig }}" 
+#     tags:
+#     - kibana
+#     - monitoring
+
+#   - name: uninstalling kibana for worker
+#     ignore_errors: yes
+#     with_nested:
+#     - "{{ monitoring_cluster.kibana }}"
+#     - "{{ clusters.worker }}"
+#     when: item.0.workerName  ==  item.1.name 
+#     kubernetes.core.helm:
+#       state: absent
+#       name: kibana
+#       chart_version: "{{ item.0.chart_version }}"
+#       release_namespace: "{{ item.0.namespace }}"  
+#       kubeconfig: "{{ item.1.kubeconfig }}"  
+#     tags:
+#     - kibana
+#     - monitoring
+
+# #Fluent-bit
+#   - name: uninstalling fluent-bit controller
+#     ignore_errors: yes
+#     loop: "{{ monitoring_cluster.fluent_bit }}"
+#     loop_control:
+#       index_var: item[]
+#     when: item.workerName  ==  "controller"
+#     kubernetes.core.helm:
+#       state: absent
+#       name: fluent-bit
+#       chart_version: "{{ item.chart_version }}"    
+#       release_namespace: "{{ item.namespace }}" 
+#       kubeconfig: "{{ clusters.controller.kubeconfig }}"  
+#     tags:
+#     - fluent-bit
+#     - monitoring
+
+#   - name: uninstalling fluent-bit worker
+#     ignore_errors: yes
+#     with_nested:
+#     - "{{ monitoring_cluster.fluent_bit }}"
+#     - "{{ clusters.worker }}"
+#     when: item.0.workerName  ==  item.1.name 
+#     kubernetes.core.helm:
+#       state: absent
+#       name: fluent-bit
+#       chart_version: "{{ item.0.chart_version }}"    
+#       release_namespace: "{{ item.0.namespace }}" 
+#       kubeconfig: "{{ item.1.kubeconfig }}"  
+#     tags:
+#     - fluent-bit
+#     - monitoring
+
+# #Prometheus
+#   - name: uninstalling prometheus on controller
+#     ignore_errors: yes
+#     loop: "{{ monitoring_cluster.prometheus }}"
+#     loop_control:
+#       index_var: item[]
+#     when: item.workerName  ==  "controller"
+#     kubernetes.core.helm:
+#       state: absent
+#       name: prometheus
+#       chart_version: "{{ item.chart_version }}"
+#       release_namespace: "{{ item.namespace }}"
+#       kubeconfig: "{{ clusters.controller.kubeconfig }}"  
+#     tags:
+#     - prometheus
+#     - monitoring
+
+#   - name: uninstalling prometheus on worker
+#     ignore_errors: yes
+#     with_nested:
+#     - "{{ monitoring_cluster.prometheus }}"
+#     - "{{ clusters.worker }}"
+#     when: item.0.workerName  ==  item.1.name 
+#     kubernetes.core.helm:
+#       state: absent
+#       name: prometheus
+#       chart_version: "{{ item.0.chart_version }}"
+#       release_namespace: "{{ item.0.namespace }}"
+#       kubeconfig: "{{ item.1.kubeconfig }}" 
+#     tags:
+#     - prometheus
+#     - monitoring
+
+# #grafana
+#   - name: uninstalling grafana on controller
+#     ignore_errors: yes
+#     loop: "{{ monitoring_cluster.grafana }}"
+#     loop_control:
+#       index_var: item[]
+#     when: item.workerName  ==  "controller"
+#     kubernetes.core.helm:
+#       name: grafana
+#       state: absent
+#       chart_version: "{{ item.chart_version }}"
+#       release_namespace: "{{ item.namespace }}"
+#       kubeconfig: "{{ clusters.controller.kubeconfig }}"  
+#     tags:
+#     - grafana
+#     - monitoring
+
+#   - name: uninstalling grafana on worker
+#     ignore_errors: yes
+#     with_nested:
+#     - "{{ monitoring_cluster.grafana }}"
+#     - "{{ clusters.worker }}"
+#     when: item.0.workerName  ==  item.1.name 
+#     kubernetes.core.helm:
+#       name: grafana
+#       state: absent
+#       chart_version: "{{ item.0.chart_version }}"
+#       release_namespace: "{{ item.0.namespace }}"
+#       kubeconfig: "{{ item.1.kubeconfig }}"  
+#     tags:
+#     - grafana
+#     - monitoring

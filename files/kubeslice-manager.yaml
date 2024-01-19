@@ -1,0 +1,24 @@
+kubeslice:
+  ui:
+    image: aveshasystems/kubeslice-ui-ent
+    tag: 0.1.0
+    pullPolicy: IfNotPresent
+  dashboard:
+    image: aveshasystems/kubeslice-kubernetes-dashboard
+    tag: v2.5.1
+    pullPolicy: IfNotPresent
+  uiproxy:
+    image: aveshasystems/kubeslice-ui-proxy
+    tag: 1.0.1
+    pullPolicy: IfNotPresent
+    service:
+      ## For kind clusters, set this to NodePort. For cloud clusters, use LoadBalancer or NodePort
+      ## Ref: https://kubernetes.io/docs/user-guide/services/#publishing-services---service-types
+      ##
+      type: NodePort
+
+# Provide your username, password & email values under imagePullSecrets to create a secret
+imagePullSecrets:
+  repository: https://index.docker.io/v1/
+  username: username
+  password: password

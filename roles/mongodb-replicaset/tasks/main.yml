@@ -1,0 +1,326 @@
+---
+# tasks file for mongodb-replicaset
+
+
+- name: Creating secret with Ops-manager key's
+  ignore_errors: yes
+  tags:
+  - mongodb-replicaset
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ item.0.namespace }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    definition: |     
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: multi-organization-secret
+        namespace: {{ item.0.namespace }}
+      stringData:
+        publicKey: {{ item.0.publicKey }}
+        privateKey: {{ item.0.privateKey }}
+
+
+##Creating configmap when baseURL is loadbalancer
+- no_log: true
+  tags: 
+  - mongodb-replicaset
+  # ignore_errors: yes
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  - item.0.Ops_manager_service_type == "LoadBalancer"
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" -n {{ item.0.operator_namespace }} get svc ops-manager-svc-ext -o jsonpath='{.status.loadBalancer.ingress[0].ip}:{.spec.ports[0].port}'
+  register: mongodb
+- name: Creating configmap with Ops-manager values
+  tags: 
+  - mongodb-replicaset
+  # ignore_errors: yes
+  loop: "{{ mongodb.results }}"
+  loop_control:
+    label: 'mongodb'
+  when: 
+  - item.changed == true 
+  - item.item.0.mongodb_master == true 
+  - item.item.0.Ops_manager_service_type == "LoadBalancer"
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ item.0.namespace }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    definition: |     
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: multi-project
+        namespace: {{ item.0.namespace }}
+      data:
+        baseUrl: http://{{ item.stdout }}
+        orgId: {{ item.0.orgId }}
+
+
+####Creating configmap when baseURL is NodePort
+- tags:
+  - mongodb-replicaset
+  no_log: false
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  - item.0.Ops_manager_service_type == "NodePort"
+  register: mongodb 
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    name: ops-manager-svc-ext
+    namespace: "{{ item.0.operator_namespace }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+- no_log: true
+  tags: 
+  - mongodb-replicaset
+  ignore_errors: yes
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  - item.0.Ops_manager_service_type == "NodePort"
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: nodeip
+- name: Creating configmap with Ops-manager values
+  tags:
+  - mongodb-replicaset
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  - "{{ mongodb.results }}"
+  - "{{ nodeip.results }}"
+  loop_control:
+    label: 'mongodb'
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  - item.0.Ops_manager_service_type == "NodePort"
+  - item.0.workerName   ==  item.2.item.0.workerName 
+  - item.0.workerName  ==   item.2.item.1.name 
+  - item.0.workerName  ==   item.3.item.1.name 
+  - item.0.workerName  ==   item.3.item.0.workerName 
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ item.0.namespace }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    definition: |     
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: multi-project
+        namespace: {{ item.0.namespace }}
+      data:
+        baseUrl: http://{{ item.1.nodeIp | default(item.3.stdout, true) }}:{{ item.2.resources.0.spec.ports.0.nodePort }}
+        orgId: {{ item.0.orgId }}
+
+##############################################################################################
+############### create a MongoDB replica set using the MongoDBMultiCRD ##################
+#############################################################################################
+- tags: mongodb-replicaset
+  shell: |
+    kubectx | awk 'FNR == 1'
+  register: master_cluster
+  environment:
+    KUBECONFIG: "{{ clusters.worker.0.kubeconfig }}"
+- tags: mongodb-replicaset
+  shell: |
+    kubectx | awk 'FNR == 1'
+  register: first_cluster
+  environment:
+    KUBECONFIG: "{{ clusters.worker.0.kubeconfig }}"
+- tags: mongodb-replicaset
+  shell: |
+    kubectx | awk 'FNR == 1'
+  register: second_cluster
+  environment:
+    KUBECONFIG: "{{ clusters.worker.1.kubeconfig }}"
+- tags: mongodb-replicaset
+  shell: |
+    kubectx | awk 'FNR == 1'
+  register: third_cluster
+  environment:
+    KUBECONFIG: "{{ clusters.worker.2.kubeconfig }}"
+
+- tags: mongodb-replicaset
+  debug:
+    msg: 
+    - "{{ master_cluster.stdout }}"  
+    - "{{ first_cluster.stdout }}" 
+    - "{{ second_cluster.stdout }}" 
+    - "{{ third_cluster.stdout }}" 
+
+- name: Creating MongoDB replica set using the MongoDBMultiCRD
+  ignore_errors: yes
+  tags:
+  - mongodb-replicaset
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ item.0.namespace }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    definition: |
+      apiVersion: mongodb.com/v1
+      kind: MongoDBMulti
+      metadata:
+        name: multi-replica-set
+      spec:
+        version: "{{ item.0.MDB_version }}"
+        type: ReplicaSet
+        persistent: true 
+        duplicateServiceObjects: true 
+        credentials: multi-organization-secret 
+        opsManager:
+          configMapRef:
+            name: multi-project 
+        clusterSpecList:
+          clusterSpecs:
+          - clusterName: {{ first_cluster.stdout }}
+            members: 1
+          - clusterName: {{ second_cluster.stdout }}
+            members: 1
+          - clusterName: {{ third_cluster.stdout }}  
+            members: 1
+
+
+###Creating ServiceExport for each mongodb member cluster
+
+- name: Creating ServiceExport for each mongodb member cluster
+  tags:
+  - mongodb-replicaset
+  shell: |
+    FIRST=$(kubectx | awk 'FNR == 1')
+    kubectl --context $FIRST apply -f files/mongodb/serviceexport/multi-replica-set-0.yaml
+
+    SECOND=$(kubectx | awk 'FNR == 2')
+    kubectl --context $SECOND apply -f files/mongodb/serviceexport/multi-replica-set-1.yaml
+
+    THIRD=$(kubectx | awk 'FNR == 3')
+    kubectl --context $THIRD apply -f files/mongodb/serviceexport/multi-replica-set-2.yaml
+  environment:
+    KUBECONFIG: "{{ clusters.worker.0.kubeconfig }}:{{ clusters.worker.1.kubeconfig }}:{{ clusters.worker.2.kubeconfig }}"
+
+
+# - name: Creating ServiceExport for each mongodb member cluster
+#   tags:
+#   - mongodb-replicaset
+#   shell: |
+#     kubectl --kubeconfig="{{ clusters.worker.0.kubeconfig }}" apply -f files/mongodb/serviceexport/multi-replica-set-0.yaml
+#     kubectl --kubeconfig="{{ clusters.worker.1.kubeconfig }}" apply -f files/mongodb/serviceexport/multi-replica-set-1.yaml
+#     kubectl --kubeconfig="{{ clusters.worker.2.kubeconfig }}" apply -f files/mongodb/serviceexport/multi-replica-set-2.yaml
+
+- name: wait
+  tags: 
+  - mongodb-replicaset
+  ansible.builtin.pause:
+    seconds: "{{ chart_deploy_timeout }}"
+
+- name: wait
+  tags: 
+  - mongodb-replicaset
+  ansible.builtin.pause:
+    seconds: 300
+
+## Service_export_details
+- no_log: true  
+  tags: 
+  - mongodb-replicaset
+  ignore_errors: yes
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[] 
+  shell: kubectl get serviceexport -n mongodb --kubeconfig="{{ item.kubeconfig }}"
+  register: service_export
+- name: Verifying all serviceexport on worker cluster
+  tags: 
+  - mongodb-replicaset
+  ignore_errors: yes
+  debug:
+    msg: 
+    - 'Serviceexport created in {{ item.item.name }} cluster ->' 
+    - "{{ item.stdout_lines }}"
+  loop: "{{ service_export.results }}"
+  loop_control:
+    label: 'service_export'
+
+## Service_import
+- no_log: true
+  tags: 
+  - mongodb-replicaset
+  ignore_errors: yes
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[] 
+  shell: kubectl get serviceimport -n mongodb --kubeconfig="{{ item.kubeconfig }}"
+  register: service_import
+- name: Verifying all serviceimport on worker cluster
+  tags: 
+  - mongodb-replicaset
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Serviceimport created in {{ item.item.name }} cluster ->' 
+    - "{{ item.stdout_lines }}"
+  loop: "{{ service_import.results }}"
+  loop_control:
+    label: 'service_import'
+
+- tags: 
+  - mongodb-replicaset
+  debug:
+    msg: Verifying mongodb multi object (multi-replica-set) status
+
+
+# mongodb multi object status
+- no_log: true
+  tags: 
+  - mongodb-replicaset
+  ignore_errors: yes
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  shell: kubectl get mdbm -n {{ item.0.namespace }} --kubeconfig="{{ item.1.kubeconfig }}" 
+  register: mongodb
+- name: fetching mongodb multi object details
+  tags: 
+  - mongodb-replicaset
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Verifying mongodb multi object status in {{ item.item.0.namespace }} namespace in {{ item.item.1.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ mongodb.results }}"
+  loop_control:
+    label: 'mongodb'
+  when: 
+  - item.changed == true
+  - item.item.0.mongodb_master == true   

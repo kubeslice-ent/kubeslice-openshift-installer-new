@@ -1,0 +1,33 @@
+apiVersion: controller.kubeslice.io/v1alpha1
+kind: SliceConfig
+metadata: 
+  name: iperf-slice
+  namespace: kubeslice-avesha
+spec:
+  sliceSubnet: 172.20.0.0/16
+  sliceType: Application
+  sliceGatewayProvider:
+    sliceGatewayType: OpenVPN
+    sliceCaType: Local
+  sliceIpamType: Local
+  clusters:
+    - worker-1
+    - worker-2
+  qosProfileDetails:
+    queueType: HTB
+    priority: 1                   #keep integer values from 0 to 3
+    tcType: BANDWIDTH_CONTROL
+    bandwidthCeilingKbps: 5120
+    bandwidthGuaranteedKbps: 2560
+    dscpClass: AF11
+  namespaceIsolationProfile:
+    applicationNamespaces:
+     - namespace: iperf
+       clusters:
+       - '*'      
+    namespaceIsolationProfile:
+    isolationEnabled: false                   #make this true in case you want to enable isolation
+    allowedNamespaces:
+     - namespace: kube-system
+       clusters:
+       - '*'

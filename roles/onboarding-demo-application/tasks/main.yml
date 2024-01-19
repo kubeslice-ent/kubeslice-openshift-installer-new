@@ -1,0 +1,815 @@
+---
+# tasks file for onboarding-demo-application
+
+######################################
+#######   Iperf Deployment   ###########
+######################################
+
+- name: Create a namespace for iperf application deployment
+  ignore_errors: yes
+  tags:
+  - iperf
+  with_nested:
+  - "{{ onboardAppsToSlices.iperfDeployment }}"
+  - "{{ clusters.worker }}"
+  kubernetes.core.k8s:
+    name: "{{ item.0.applicationNs }}"
+    wait_sleep: 5
+    api_version: v1
+    kind: Namespace
+    state: present
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+  when: item.0.name  ==  item.1.name 
+
+#openshift
+- name: giving privillage to serviceaccount of Iperf namespace
+  ignore_errors: yes
+  when : 
+  - item.1.openshift_cluster == true
+  - item.0.name  ==  item.1.name
+  tags:
+  - iperf
+  with_nested:
+  - "{{ onboardAppsToSlices.iperfDeployment }}"
+  - "{{ clusters.worker }}"
+  shell: "oc adm policy add-scc-to-group privileged system:serviceaccounts:{{ item.0.applicationNs }} --kubeconfig={{ item.1.kubeconfig }}"
+
+- name: assigning enforce privileged for Iperf namespace
+  ignore_errors: yes
+  when : 
+  - item.1.openshift_cluster == true
+  - item.0.name  ==  item.1.name
+  tags:
+  - iperf
+  with_nested:
+  - "{{ onboardAppsToSlices.iperfDeployment }}"
+  - "{{ clusters.worker }}"
+  shell: "kubectl --kubeconfig={{ item.1.kubeconfig }} label --overwrite ns {{ item.0.applicationNs }} pod-security.kubernetes.io/enforce=privileged"
+
+- name: wait
+  tags:
+  - iperf
+  ansible.builtin.pause:
+    seconds: "{{ chart_deploy_timeout }}"
+
+- name: installing iperf-sleep on worker
+  ignore_errors: yes
+  tags:
+  - iperf
+  with_nested:
+  - "{{ onboardAppsToSlices.iperfDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.iperfClient == true
+  - item.0.name  ==  item.1.name
+  kubernetes.core.k8s:
+    state: present
+    wait: true
+    wait_timeout: 120
+    namespace: "{{ item.0.applicationNs }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    src: files/iperf/iperf-sleep.yaml
+
+- name: installing iperf-server on worker
+  ignore_errors: yes
+  tags:
+  - iperf
+  with_nested:
+  - "{{ onboardAppsToSlices.iperfDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.iperfServer == true
+  - item.0.name  ==  item.1.name
+  kubernetes.core.k8s:
+    state: present
+    wait: true
+    wait_timeout: 120
+    namespace: "{{ item.0.applicationNs }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    src: files/iperf/iperf-server.yaml
+
+- name: wait
+  tags:
+  - iperf
+  ansible.builtin.pause:
+    seconds: "{{ chart_deploy_timeout }}"
+
+######################################
+#######   Bookinfo Deployment   #######
+######################################
+
+- name: Create a namespace for bookinfo application deployment
+  ignore_errors: yes
+  tags:
+  - bookinfo
+  with_nested:
+  - "{{ onboardAppsToSlices.bookinfoDeployment }}"
+  - "{{ clusters.worker }}"
+  kubernetes.core.k8s:
+    name: "{{ item.0.applicationNs }}"
+    wait_sleep: 5
+    api_version: v1
+    kind: Namespace
+    state: present
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+  when: item.0.name  ==  item.1.name 
+
+#openshift
+- name: giving privillage to serviceaccount of bookinfo namespace
+  ignore_errors: yes
+  when : 
+  - item.1.openshift_cluster == true
+  - item.0.name  ==  item.1.name
+  tags:
+  - bookinfo
+  with_nested:
+  - "{{ onboardAppsToSlices.bookinfoDeployment }}"
+  - "{{ clusters.worker }}"
+  shell: "oc adm policy add-scc-to-group privileged system:serviceaccounts:{{ item.0.applicationNs }} --kubeconfig={{ item.1.kubeconfig }}"
+
+- name: assigning enforce privileged for bookinfo namespace
+  ignore_errors: yes
+  when : 
+  - item.1.openshift_cluster == true
+  - item.0.name  ==  item.1.name
+  tags:
+  - bookinfo
+  with_nested:
+  - "{{ onboardAppsToSlices.bookinfoDeployment }}"
+  - "{{ clusters.worker }}"
+  shell: "kubectl --kubeconfig={{ item.1.kubeconfig }} label --overwrite ns {{ item.0.applicationNs }} pod-security.kubernetes.io/enforce=privileged"
+
+- name: wait
+  tags:
+  - bookinfo
+  ansible.builtin.pause:
+    seconds: "{{ chart_deploy_timeout }}"
+
+- name: add istio label to bookinfo deployment namespace
+  ignore_errors: yes
+  tags:
+  - bookinfo
+  with_nested:
+  - "{{ onboardAppsToSlices.bookinfoDeployment }}"
+  - "{{ clusters.worker }}"
+  kubernetes.core.k8s:
+    state: patched
+    wait_sleep: 5
+    kind: Namespace
+    name: "{{ item.0.applicationNs }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    definition:
+      metadata:
+        labels:
+          'istio-injection': enabled
+  when: item.0.name  ==  item.1.name 
+
+- name: installing bookinfo productpage on worker
+  ignore_errors: yes
+  tags:
+  - bookinfo
+  with_nested:
+  - "{{ onboardAppsToSlices.bookinfoDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.bookinfoClient == true
+  - item.0.name  ==  item.1.name 
+  kubernetes.core.k8s:
+    state: present
+    wait: true
+    wait_timeout: 120
+    namespace: "{{ item.0.applicationNs }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    src: files/bookinfo/productpage.yaml
+
+
+- name: installing bookinfo details service on worker
+  ignore_errors: yes
+  tags:
+  - bookinfo
+  with_nested:
+  - "{{ onboardAppsToSlices.bookinfoDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.bookinfoServer == true
+  - item.0.name  ==  item.1.name
+  kubernetes.core.k8s:
+    state: present
+    wait: true
+    wait_timeout: 120
+    namespace: "{{ item.0.applicationNs }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    src: files/bookinfo/details.yaml
+
+- name: installing bookinfo ratings service on worker
+  ignore_errors: yes
+  tags:
+  - bookinfo
+  with_nested:
+  - "{{ onboardAppsToSlices.bookinfoDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.bookinfoServer == true
+  - item.0.name  ==  item.1.name
+  kubernetes.core.k8s:
+    state: present
+    wait: true
+    wait_timeout: 120
+    namespace: "{{ item.0.applicationNs }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    src: files/bookinfo/ratings.yaml
+
+- name: installing bookinfo reviews service on worker
+  ignore_errors: yes
+  tags:
+  - bookinfo
+  with_nested:
+  - "{{ onboardAppsToSlices.bookinfoDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.bookinfoServer == true
+  - item.0.name  ==  item.1.name
+  kubernetes.core.k8s:
+    state: present
+    wait: true
+    wait_timeout: 120
+    namespace: "{{ item.0.applicationNs }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    src: files/bookinfo/reviews.yaml
+
+- name: wait
+  tags:
+  - bookinfo
+  ansible.builtin.pause:
+    seconds: "{{ chart_deploy_timeout }}"
+
+
+###############################################
+#######   OBS Application Deployment   ###########
+################################################
+
+- name: Create a namespace for obs application deployment
+  ignore_errors: yes
+  tags:
+  - obs
+  with_nested:
+  - "{{ onboardAppsToSlices.obsDeployment }}"
+  - "{{ clusters.worker }}"
+  kubernetes.core.k8s:
+    name: "{{ item.0.applicationNs }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+  when: item.0.name  ==  item.1.name 
+
+#openshift
+- name: giving privillage to serviceaccount of obs namespace
+  ignore_errors: yes
+  when : 
+  - item.1.openshift_cluster == true
+  - item.0.name  ==  item.1.name
+  tags:
+  - obs
+  with_nested:
+  - "{{ onboardAppsToSlices.obsDeployment }}"
+  - "{{ clusters.worker }}"
+  shell: "oc adm policy add-scc-to-group privileged system:serviceaccounts:{{ item.0.applicationNs }} --kubeconfig={{ item.1.kubeconfig }}"
+
+- name: assigning enforce privileged for obs namespace
+  ignore_errors: yes
+  when : 
+  - item.1.openshift_cluster == true
+  - item.0.name  ==  item.1.name
+  tags:
+  - obs
+  with_nested:
+  - "{{ onboardAppsToSlices.obsDeployment }}"
+  - "{{ clusters.worker }}"
+  shell: "kubectl --kubeconfig={{ item.1.kubeconfig }} label --overwrite ns {{ item.0.applicationNs }} pod-security.kubernetes.io/enforce=privileged"
+
+
+- name: wait
+  tags:
+  - obs
+  ansible.builtin.pause:
+    seconds: "{{ chart_deploy_timeout }}"
+
+- name: installing obs-ui on worker
+  ignore_errors: yes
+  tags:
+  - obs
+  with_nested:
+  - "{{ onboardAppsToSlices.obsDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.obsClient == true
+  - item.0.name  ==  item.1.name
+  kubernetes.core.k8s:
+    state: present
+    wait: true
+    wait_timeout: 120
+    namespace: "{{ item.0.applicationNs }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    src: files/obs/obs-studio.yaml
+
+- name: installing obs-server on worker
+  ignore_errors: yes
+  tags:
+  - obs
+  with_nested:
+  - "{{ onboardAppsToSlices.obsDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.obsServer == true
+  - item.0.name  ==  item.1.name
+  kubernetes.core.k8s:
+    state: present
+    wait: true
+    wait_timeout: 120
+    namespace: "{{ item.0.applicationNs }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    src: files/obs/stream-server.yaml
+
+- name: wait
+  tags:
+  - obs
+  ansible.builtin.pause:
+    seconds: "{{ chart_deploy_timeout }}"
+
+
+###############################################
+#######   boutique Application Deployment   ###########
+################################################
+
+- name: Create a namespace for boutique application deployment
+  ignore_errors: yes
+  tags:
+  - boutique
+  with_nested:
+  - "{{ onboardAppsToSlices.boutiqueDeployment }}"
+  - "{{ clusters.worker }}"
+  kubernetes.core.k8s:
+    name: "{{ item.0.applicationNs }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+  when: item.0.name  ==  item.1.name 
+
+#openshift
+- name: giving privillage to serviceaccount of boutique namespace
+  ignore_errors: yes
+  when : 
+  - item.1.openshift_cluster == true
+  - item.0.name  ==  item.1.name
+  tags:
+  - boutique
+  with_nested:
+  - "{{ onboardAppsToSlices.boutiqueDeployment }}"
+  - "{{ clusters.worker }}"
+  shell: "oc adm policy add-scc-to-group privileged system:serviceaccounts:{{ item.0.applicationNs }} --kubeconfig={{ item.1.kubeconfig }}"
+
+- name: assigning enforce privileged for boutique namespace
+  ignore_errors: yes
+  when : 
+  - item.1.openshift_cluster == true
+  - item.0.name  ==  item.1.name
+  tags:
+  - boutique
+  with_nested:
+  - "{{ onboardAppsToSlices.boutiqueDeployment }}"
+  - "{{ clusters.worker }}"
+  shell: "kubectl --kubeconfig={{ item.1.kubeconfig }} label --overwrite ns {{ item.0.applicationNs }} pod-security.kubernetes.io/enforce=privileged"
+
+
+- name: wait
+  tags:
+  - boutique
+  ansible.builtin.pause:
+    seconds: "{{ chart_deploy_timeout }}"
+
+- name: installing boutique-frontendServices on worker
+  ignore_errors: yes
+  tags:
+  - boutique
+  with_nested:
+  - "{{ onboardAppsToSlices.boutiqueDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.boutiqueClient == true
+  - item.0.name  ==  item.1.name
+  kubernetes.core.k8s:
+    state: present
+    wait: true
+    wait_timeout: 120
+    namespace: "{{ item.0.applicationNs }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    src: files/boutique/second-cluster/frontendServices.yaml
+
+- name: installing boutique-productcatalogService on worker
+  ignore_errors: yes
+  tags:
+  - boutique
+  with_nested:
+  - "{{ onboardAppsToSlices.boutiqueDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.boutiqueClient == true
+  - item.0.name  ==  item.1.name
+  kubernetes.core.k8s:
+    state: present
+    wait: true
+    wait_timeout: 120
+    namespace: "{{ item.0.applicationNs }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    src: files/boutique/second-cluster/productcatalogService.yaml
+
+- name: installing boutique-recommendationService on worker
+  ignore_errors: yes
+  tags:
+  - boutique
+  with_nested:
+  - "{{ onboardAppsToSlices.boutiqueDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.boutiqueClient == true
+  - item.0.name  ==  item.1.name
+  kubernetes.core.k8s:
+    state: present
+    wait: true
+    wait_timeout: 120
+    namespace: "{{ item.0.applicationNs }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    src: files/boutique/second-cluster/recommendationService.yaml
+
+- name: installing boutique-shippingService on worker
+  ignore_errors: yes
+  tags:
+  - boutique
+  with_nested:
+  - "{{ onboardAppsToSlices.boutiqueDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.boutiqueClient == true
+  - item.0.name  ==  item.1.name
+  kubernetes.core.k8s:
+    state: present
+    wait: true
+    wait_timeout: 120
+    namespace: "{{ item.0.applicationNs }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    src: files/boutique/second-cluster/shippingService.yaml    
+
+
+- name: installing boutique-adService on worker
+  ignore_errors: yes
+  tags:
+  - boutique
+  with_nested:
+  - "{{ onboardAppsToSlices.boutiqueDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.boutiqueServer == true
+  - item.0.name  ==  item.1.name
+  kubernetes.core.k8s:
+    state: present
+    wait: true
+    wait_timeout: 120
+    namespace: "{{ item.0.applicationNs }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    src: files/boutique/first-cluster/adService.yaml
+
+- name: installing boutique-currencyService on worker
+  ignore_errors: yes
+  tags:
+  - boutique
+  with_nested:
+  - "{{ onboardAppsToSlices.boutiqueDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.boutiqueServer == true
+  - item.0.name  ==  item.1.name
+  kubernetes.core.k8s:
+    state: present
+    wait: true
+    wait_timeout: 120
+    namespace: "{{ item.0.applicationNs }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    src: files/boutique/first-cluster/currencyService.yaml
+
+- name: installing boutique-emailService on worker
+  ignore_errors: yes
+  tags:
+  - boutique
+  with_nested:
+  - "{{ onboardAppsToSlices.boutiqueDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.boutiqueServer == true
+  - item.0.name  ==  item.1.name
+  kubernetes.core.k8s:
+    state: present
+    wait: true
+    wait_timeout: 120
+    namespace: "{{ item.0.applicationNs }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    src: files/boutique/first-cluster/emailService.yaml
+
+- name: installing boutique-paymentService on worker
+  ignore_errors: yes
+  tags:
+  - boutique
+  with_nested:
+  - "{{ onboardAppsToSlices.boutiqueDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.boutiqueServer == true
+  - item.0.name  ==  item.1.name
+  kubernetes.core.k8s:
+    state: present
+    wait: true
+    wait_timeout: 120
+    namespace: "{{ item.0.applicationNs }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    src: files/boutique/first-cluster/paymentService.yaml
+
+
+- name: wait
+  tags:
+  - boutique
+  ansible.builtin.pause:
+    seconds: "{{ chart_deploy_timeout }}"
+
+
+######################################
+#######   cockroachDB Deployment   ###########
+######################################
+
+- name: Create a namespace for cockroachDB application deployment
+  ignore_errors: yes
+  tags:
+  - cockroachDB
+  with_nested:
+  - "{{ onboardAppsToSlices.cockroachDBDeployment }}"
+  - "{{ clusters.worker }}"
+  kubernetes.core.k8s:
+    name: "{{ item.0.applicationNs }}"
+    wait_sleep: 5
+    api_version: v1
+    kind: Namespace
+    state: present
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+  when: item.0.name  ==  item.1.name 
+
+#openshift
+- name: giving privillage to serviceaccount of cockroachDB namespace
+  ignore_errors: yes
+  when : 
+  - item.1.openshift_cluster == true
+  - item.0.name  ==  item.1.name
+  tags:
+  - cockroachDB
+  with_nested:
+  - "{{ onboardAppsToSlices.cockroachDBDeployment }}"
+  - "{{ clusters.worker }}"
+  shell: "oc adm policy add-scc-to-group privileged system:serviceaccounts:{{ item.0.applicationNs }} --kubeconfig={{ item.1.kubeconfig }}"
+
+- name: assigning enforce privileged for cockroachDB namespace
+  ignore_errors: yes
+  when : 
+  - item.1.openshift_cluster == true
+  - item.0.name  ==  item.1.name
+  tags:
+  - cockroachDB
+  with_nested:
+  - "{{ onboardAppsToSlices.cockroachDBDeployment }}"
+  - "{{ clusters.worker }}"
+  shell: "kubectl --kubeconfig={{ item.1.kubeconfig }} label --overwrite ns {{ item.0.applicationNs }} pod-security.kubernetes.io/enforce=privileged"
+
+
+- name: wait
+  tags:
+  - cockroachDB
+  ansible.builtin.pause:
+    seconds: "{{ chart_deploy_timeout }}"
+
+- tags:
+  - cockroachDB
+  debug:
+    msg: "Deploying cockroachDB Statefulsets"
+
+# - name: installing cockroachDB Statefulset on worker
+#   ignore_errors: yes
+#   tags:
+#   - cockroachDB
+#   with_nested:
+#   - "{{ onboardAppsToSlices.cockroachDBDeployment }}"
+#   - "{{ clusters.worker }}"
+#   when: 
+#   - item.0.name  ==  item.1.name
+#   kubernetes.core.k8s:
+#     state: present
+#     wait: true
+#     wait_timeout: 120
+#     namespace: "{{ item.0.applicationNs }}"
+#     kubeconfig: "{{ item.1.kubeconfig }}"
+#     validate_certs: "{{ validate_certs }}"
+#     src: "{{ item.0.StatefulSetPath }}"
+
+- name: Installing CockroachDB Statefulset on worker
+  no_log: false
+  tags:
+  - cockroachDB
+  ignore_errors: yes
+  with_nested:
+  - "{{ onboardAppsToSlices.cockroachDBDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name 
+  shell: kubectl apply -f {{ item.0.StatefulSetPath }} -n {{ item.0.applicationNs }} --kubeconfig="{{ item.1.kubeconfig }}"
+
+
+- name: installing cockroachDB ClusterInit on worker
+  ignore_errors: yes
+  tags:
+  - cockroachDB
+  with_nested:
+  - "{{ onboardAppsToSlices.cockroachDBDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.clusterInit == true
+  - item.0.name  ==  item.1.name
+  kubernetes.core.k8s:
+    state: present
+    wait: true
+    wait_timeout: 120
+    namespace: "{{ item.0.applicationNs }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    src: "{{ item.0.clusterInitPath }}"
+
+- name: wait
+  tags:
+  - cockroachDB
+  ansible.builtin.pause:
+    seconds: "{{ chart_deploy_timeout }}"
+
+
+######################################
+#######   Mushop Deployment   ###########
+######################################
+
+- name: Create a namespace for mushop application deployment
+  ignore_errors: yes
+  tags:
+  - mushop
+  with_nested:
+  - "{{ onboardAppsToSlices.mushopDeployment }}"
+  - "{{ clusters.worker }}"
+  kubernetes.core.k8s:
+    name: "{{ item.0.applicationNs }}"
+    wait_sleep: 5
+    api_version: v1
+    kind: Namespace
+    state: present
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+  when: item.0.name  ==  item.1.name 
+
+#openshift
+- name: giving privillage to serviceaccount of mushop namespace
+  ignore_errors: yes
+  when : 
+  - item.1.openshift_cluster == true
+  - item.0.name  ==  item.1.name
+  tags:
+  - mushop
+  with_nested:
+  - "{{ onboardAppsToSlices.mushopDeployment }}"
+  - "{{ clusters.worker }}"
+  shell: "oc adm policy add-scc-to-group privileged system:serviceaccounts:{{ item.0.applicationNs }} --kubeconfig={{ item.1.kubeconfig }}"
+
+- name: assigning enforce privileged for mushop namespace
+  ignore_errors: yes
+  when : 
+  - item.1.openshift_cluster == true
+  - item.0.name  ==  item.1.name
+  tags:
+  - mushop
+  with_nested:
+  - "{{ onboardAppsToSlices.mushopDeployment }}"
+  - "{{ clusters.worker }}"
+  shell: "kubectl --kubeconfig={{ item.1.kubeconfig }} label --overwrite ns {{ item.0.applicationNs }} pod-security.kubernetes.io/enforce=privileged"
+
+
+- name: wait
+  tags:
+  - mushop
+  ansible.builtin.pause:
+    seconds: "{{ chart_deploy_timeout }}"
+
+
+- name: Creating ATP Database Admin password secret
+  ignore_errors: yes
+  tags:
+  - mushop
+  with_nested:
+  - "{{ onboardAppsToSlices.mushopDeployment }}"
+  - "{{ clusters.worker }}"
+  when: item.0.name  ==  item.1.name
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ item.0.applicationNs }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    definition: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: oadb-admin
+        namespace: mushop
+      type: Opaque
+      data:
+        oadb_admin_pw: "{{ item.0.ATPDatabaseAdminPass }}"
+    
+- name: Adding ATP Database wallet into secrets
+  no_log: true
+  tags:
+  - mushop
+  ignore_errors: yes
+  with_nested:
+  - "{{ onboardAppsToSlices.mushopDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name 
+  shell: kubectl create secret generic oadb-wallet --namespace {{ item.0.applicationNs }} --from-file='{{ item.0.ATPDatabaseWalletPath }}' --kubeconfig="{{ item.1.kubeconfig }}"
+
+- name: Adding ATP Database connection secrets
+  ignore_errors: yes
+  tags:
+  - mushop
+  with_nested:
+  - "{{ onboardAppsToSlices.mushopDeployment }}"
+  - "{{ clusters.worker }}"
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ item.0.applicationNs }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    definition: |
+      apiVersion: v1
+      data:
+        oadb_service: "{{ item.0.ATPDatabaseServiceName }}"
+        oadb_wallet_pw: "{{ item.0.ATPDatabasewalletpass }}"
+      kind: Secret
+      metadata:
+        name: oadb-connection
+  when: item.0.name  ==  item.1.name
+
+- name: Deploying Mushop Application on worker cluster
+  ignore_errors: yes
+  tags:
+  - mushop
+  with_nested:
+  - "{{ onboardAppsToSlices.mushopDeployment }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.name  ==  item.1.name
+  kubernetes.core.helm:
+    state: present
+    name: "{{ item.0.applicationNs }}"
+    chart_ref: "files/mushop"
+    release_namespace: "{{ item.0.applicationNs }}"
+    create_namespace: true
+    values_files:
+      - "{{ item.0.valuesfilePath }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+
+- name: wait
+  tags:
+  - mushop
+  ansible.builtin.pause:
+    seconds: "{{ chart_deploy_timeout }}"

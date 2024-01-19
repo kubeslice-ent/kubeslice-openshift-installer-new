@@ -1,0 +1,14 @@
+apiVersion: networking.kubeslice.io/v1beta1
+kind: ServiceExport
+metadata:
+  name: iperf-server
+  namespace: iperf
+spec:
+  slice: cyan
+  selector:
+    matchLabels:
+      app: iperf-server
+  ports:
+  - name: tcp
+    containerPort: 5201
+    protocol: TCP

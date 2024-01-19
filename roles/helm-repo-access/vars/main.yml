@@ -1,0 +1,19 @@
+---
+# vars file for helm-repo-access
+### Helm repo Name ###
+# helm_repo_name: testing
+
+# ### Opensource ###
+# helm_chart_url: https://kubeslice.github.io/charts/
+
+# #### ENTERPRISE ####
+# # helm_chart_url: https://kubeslice.aveshalabs.io/repository/kubeslice-helm-ent-prod/
+
+# ### Worker cluster names ###
+# worker1_cluster_name: worker-sno-1
+# worker2_cluster_name: worker-sno-2
+
+# ### Cluster context ####
+# hub_cluster_context: default/api-worker-4-sno-aveshaonprem-com:6443/manish
+# worker1_context: default/api-worker-4-sno-aveshaonprem-com:6443/manish
+# worker2_context: default/api-worker-3-sno-aveshaonprem-com:6443/manish

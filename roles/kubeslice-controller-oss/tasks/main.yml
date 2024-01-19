@@ -1,0 +1,161 @@
+---
+# tasks file for kubeslice-controller-oss
+
+### Cert-manager installation ###
+
+- name: Deploy cert-manager chart
+  tags:
+  - cert-manager
+  kubernetes.core.helm:
+    name: cert-manager
+    chart_ref: "{{ helm_repo_name }}/cert-manager"
+    release_namespace: cert-manager
+    create_namespace: true
+    values:
+      installCRDs: true
+    kubeconfig: "{{ clusters.controller.kubeconfig }}"
+
+- tags:
+  - cert-manager
+  debug:
+    msg: "Wait for cert-manager to be Running"
+
+- name: wait
+  ansible.builtin.pause:
+    seconds: "{{ chart_deploy_timeout }}"
+
+
+- name: Checking cert-manager pods
+  tags:
+  - cert-manager
+  shell: "kubectl get pods -n cert-manager --kubeconfig={{ clusters.controller.kubeconfig }}"
+  register: command_output
+- debug: var=command_output.stdout_lines
+
+
+###### Kubeslice controller installation ########
+
+- name: fetching controller Cluster endpoint  
+  tags:
+  - kubeslice-controller
+  kubernetes.core.k8s_cluster_info:
+    kubeconfig: "{{ clusters.controller.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+  register: controller_host
+- set_fact:
+    controller_endpoint: "{{ controller_host.connection.host  }}" 
+  tags:
+  - kubeslice-controller
+
+- name: changing cluster endpoints entry in values.yaml file 
+  tags:
+  - kubeslice-controller
+  lineinfile:
+      path: files/values.yaml
+      regexp: 'endpoint:'
+      line: "    endpoint: {{ clusters.controller.endpoint | default(controller_endpoint, true) }}"
+
+
+# Fetching helm values 
+- shell: helm show values {{ helm_repo_name }}/kubeslice-controller --version={{ clusters.controller.chart_version }} > files/charts_default_values/kubeslice-controller-values.yaml
+  tags:
+  - kubeslice-controller
+- set_fact:
+    kubeslice_controller_values: "{{ lookup('file', 'files/charts_default_values/kubeslice-controller-values.yaml') | from_yaml }}"
+  tags:
+  - kubeslice-controller
+
+- name: Deploy kubeslice-controller
+  tags:
+  - kubeslice-controller
+  kubernetes.core.helm:
+    name: kubeslice-controller
+    chart_ref: "{{ helm_repo_name }}/kubeslice-controller "
+    chart_version: "{{ clusters.controller.chart_version }}" 
+    release_namespace: kubeslice-controller 
+    create_namespace: true
+    values:
+      kubeslice:
+        controller:
+          image: "{{ item.operator.image | default(kubeslice_controller_values.kubeslice.controller.image, true) }}"
+          tag: "{{ item.operator.tag | default(kubeslice_controller_values.kubeslice.controller.tag, true) }}"
+    values_files:
+      - files/values.yaml
+    kubeconfig: "{{ clusters.controller.kubeconfig }}"
+
+- tags:
+  - kubeslice-controller
+  debug:
+    msg: "Wait for controller pod to be Running"
+
+- name: wait 
+  ansible.builtin.pause:
+    seconds: "{{ chart_deploy_timeout }}"
+
+- name: Checking controller pods
+  tags:
+  - kubeslice-controller
+  shell: "kubectl get pods -n kubeslice-controller --kubeconfig={{ clusters.controller.kubeconfig }}"
+  register: controller_pod
+- debug: var=controller_pod.stdout_lines
+
+#describe pod in Kubeslice-controller namespace
+- no_log: true
+  when: " enable_debug == true "
+  tags: 
+  - test
+  ignore_errors: yes
+  shell: kubectl describe pods -n kubeslice-controller --kubeconfig="{{ clusters.controller.kubeconfig }}"
+  register: controller_pod_output
+- name: Verifying kubeslice-controller pods status
+  when: " enable_debug == true "
+  tags: 
+  - test
+  ignore_errors: yes
+  debug:
+    msg: 
+    - 'pods description in Kubeslice-controller Namespace in controller cluster  ->'
+    - "{{ controller_pod_output.stdout_lines }}"
+
+- name: Checking Project namespace already existed or not 
+  ignore_errors: yes
+  tags:
+  - project
+  shell: "kubectl get project {{ clusters.controller.projectNamespace }} -n kubeslice-controller --kubeconfig={{ clusters.controller.kubeconfig }}| grep -o {{ clusters.controller.projectNamespace }} "
+  register: project_validation
+
+- name: Creating a Project namespace 
+  tags:
+  - project
+  when: "'non-zero return code' in project_validation.msg"
+  kubernetes.core.k8s:
+    state: present
+    # src: files/Projectname.yaml
+    namespace: kubeslice-controller
+    kubeconfig: "{{ clusters.controller.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    definition: |
+      apiVersion: controller.kubeslice.io/v1alpha1
+      kind: Project
+      metadata:
+        name: {{ clusters.controller.projectNamespace }}
+        namespace: kubeslice-controller
+      spec:
+        serviceAccount:
+          readWrite:
+            - admin-ui
+    
+- name: wait for 5 sec
+  ansible.builtin.pause:
+    seconds: 5
+
+- name: Checking Project created by project-namespace 
+  tags:
+  - project
+  shell: "kubectl get project -n kubeslice-controller --kubeconfig={{ clusters.controller.kubeconfig }}"
+  register: project_sa
+- debug: var=project_sa.stdout_lines
+  tags:
+  - project
+
+

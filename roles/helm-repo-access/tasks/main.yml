@@ -1,0 +1,21 @@
+---
+# tasks file for helm-repo-access
+
+- name: clean previous repo
+  shell: helm repo remove "{{ helm_repo_name }}"
+  ignore_errors: yes
+  
+- name: Add helm repo
+  kubernetes.core.helm_repository:
+      name: "{{ helm_repo_name }}"
+      repo_url: "{{ helm_chart_url }}"
+      repo_username: "{{ helm_repo_username }}"
+      repo_password: "{{ helm_repo_password }}"
+      
+- name: update the helm charts
+  shell: helm repo update "{{ helm_repo_name }}"
+
+- name: helm search repo
+  shell: helm search repo "{{ helm_repo_name }}/"
+  register: command_output
+- debug: var=command_output.stdout_lines

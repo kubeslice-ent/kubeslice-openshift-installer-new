@@ -1,0 +1,450 @@
+---
+# tasks file for kubeslice-monitoring
+
+###################################################
+###### Installing elasticsearch and kibana #######
+################################################
+
+- name: clean previous elastic repo
+  tags:
+  - elasticsearch
+  - kibana
+  shell: helm repo remove "{{ elastic_helm_repo_name }}"
+  ignore_errors: yes
+  
+- ignore_errors: yes
+  name: Add elastic helm repo
+  tags:
+  - elasticsearch
+  - kibana
+  kubernetes.core.helm_repository:
+      name: "{{ elastic_helm_repo_name }}"
+      repo_url: "{{ elastic_helm_chart_url }}"
+      
+- name: update the elastic helm charts
+  ignore_errors: yes
+  tags:
+  - elasticsearch
+  - kibana
+  shell: helm repo update "{{ elastic_helm_repo_name }}"
+
+- name: helm search repo
+  ignore_errors: yes
+  tags:
+  - elasticsearch
+  - kibana
+  shell: helm search repo "{{ elastic_helm_repo_name }}/"
+  register: command_output
+- debug: var=command_output.stdout_lines
+  tags:
+  - elasticsearch
+  - kibana
+
+#For controller
+- name: installing Elasticsearch on controller
+  ignore_errors: yes
+  loop: "{{ monitoring_cluster.elasticsearch }}"
+  loop_control:
+    index_var: item[]
+  when: item.workerName  ==  "controller"
+  kubernetes.core.helm:
+    name: elasticsearch
+    chart_version: "{{ item.chart_version }}"
+    chart_ref: "{{ elastic_helm_repo_name }}/elasticsearch"
+    values:
+      clusterName: "{{ item.name }}" 
+      replicas: "{{ item.replicas }}"
+      minimumMasterNodes: 1
+      clusterHealthCheckParams: 'wait_for_status=yellow&timeout=1s'
+      service:
+        type: NodePort
+        nodePort: "{{ item.nodePort }}" 
+      volumeClaimTemplate:
+        resources:
+          requests:
+            storage: "{{ item.storage_size }}" 
+    release_namespace: "{{ item.namespace }}" 
+    create_namespace: true  
+    kubeconfig: "{{ clusters.controller.kubeconfig }}" 
+  tags:
+  - elasticsearch
+
+#For worker
+- name: installing Elasticsearch on worker
+  ignore_errors: yes
+  with_nested:
+  - "{{ monitoring_cluster.elasticsearch }}"
+  - "{{ clusters.worker }}"
+  when: item.0.workerName  ==  item.1.name 
+  kubernetes.core.helm:
+    name: elasticsearch
+    chart_version: "{{ item.0.chart_version }}"
+    chart_ref: "{{ elastic_helm_repo_name }}/elasticsearch"
+    values:
+      clusterName: "{{ item.0.name }}" 
+      replicas: "{{ item.0.replicas }}"
+      minimumMasterNodes: 1
+      clusterHealthCheckParams: 'wait_for_status=yellow&timeout=1s'
+      service:
+        type: NodePort
+        nodePort: "{{ item.0.nodePort }}" 
+      volumeClaimTemplate:
+        resources:
+          requests:
+            storage: "{{ item.0.storage_size }}" 
+    release_namespace: "{{ item.0.namespace }}" 
+    create_namespace: true  
+    kubeconfig: "{{ item.1.kubeconfig }}"  
+  tags:
+  - elasticsearch
+
+- name: wait 
+  ansible.builtin.pause:
+    seconds: "{{ chart_deploy_timeout }}"
+
+#For controller 
+- name: installing kibana for controller
+  ignore_errors: yes
+  loop: "{{ monitoring_cluster.kibana }}"
+  loop_control:
+    index_var: item[]
+  when: item.workerName  ==  "controller" 
+  kubernetes.core.helm:
+    name: kibana
+    chart_ref: "{{ elastic_helm_repo_name }}/kibana"
+    chart_version: "{{ item.chart_version }}"
+    values:
+      kibanaConfig:
+        kibana.yml: |
+          server.host: "0.0.0.0"
+          server.shutdownTimeout: "5s"
+          monitoring.ui.container.elasticsearch.enabled: false
+          elasticsearch.hosts: [ "{{ item.elasticsearchURL }}" ]
+      elasticsearchURL: "{{ item.elasticsearchURL }}"
+      elasticsearchHosts:  "{{ item.elasticsearchURL }}"
+      service: 
+        type: "{{ item.service_type }}"  
+        nodePort: "{{ item.NodePort }}"
+    release_namespace: "{{ item.namespace }}"  
+    create_namespace: true  
+    kubeconfig: "{{ clusters.controller.kubeconfig }}"
+  tags:
+  - kibana
+
+#For worker
+- name: installing kibana for worker
+  ignore_errors: yes
+  with_nested:
+  - "{{ monitoring_cluster.kibana }}"
+  - "{{ clusters.worker }}"
+  when: item.0.workerName  ==  item.1.name 
+  kubernetes.core.helm:
+    name: kibana
+    chart_ref: "{{ elastic_helm_repo_name }}/kibana"
+    chart_version: "{{ item.0.chart_version }}"
+    values:
+      kibanaConfig:
+        kibana.yml: |
+          server.host: "0.0.0.0"
+          server.shutdownTimeout: "5s"
+          monitoring.ui.container.elasticsearch.enabled: false
+          elasticsearch.hosts: [ "{{ item.0.elasticsearchURL }}" ]
+      elasticsearchURL: "{{ item.0.elasticsearchURL }}"
+      elasticsearchHosts:  "{{ item.0.elasticsearchURL }}"
+      service: 
+        type: "{{ item.0.service_type }}"  
+        nodePort: "{{ item.0.NodePort }}"
+    release_namespace: "{{ item.0.namespace }}"  
+    create_namespace: true  
+    kubeconfig: "{{ item.1.kubeconfig }}"  
+  tags:
+  - kibana
+
+
+###########################################
+###### Installing fluent-bit #############
+#########################################
+
+- name: clean previous fluent repo
+  ignore_errors: yes
+  tags:
+  - fluent-bit
+  shell: helm repo remove "{{ fluent_helm_repo_name }}"
+  
+  
+- name: Add fluent helm repo
+  ignore_errors: yes
+  tags:
+  - fluent-bit
+  kubernetes.core.helm_repository:
+      name: "{{ fluent_helm_repo_name }}"
+      repo_url: "{{ fluent_helm_chart_url }}"
+      
+- name: update the fluent helm charts
+  ignore_errors: yes
+  tags:
+  - fluent-bit
+  shell: helm repo update "{{ fluent_helm_repo_name }}"
+
+- name: helm search repo
+  ignore_errors: yes
+  tags:
+  - fluent-bit
+  shell: helm search repo "{{ fluent_helm_repo_name }}/"
+  register: command_output
+- debug: var=command_output.stdout_lines
+  tags:
+  - fluent-bit
+
+#For controller
+- name: installing fluent-bit for controller
+  ignore_errors: yes
+  loop: "{{ monitoring_cluster.fluent_bit }}"
+  loop_control:
+    index_var: item[]
+  when: item.workerName  ==  "controller" 
+  kubernetes.core.helm:
+    name: fluent-bit
+    chart_ref: "{{ fluent_helm_repo_name }}/fluent-bit"
+    chart_version: "{{ item.chart_version }}"    
+    values:
+      config:
+        outputs: |
+          [OUTPUT]
+              Name es
+              Match *
+              Index {{ item.name }}
+              Host {{ item.elasticsearch_nodeIP }}
+              Port {{ item.elasticsearch_port }}
+              Logstash_Format Off
+              Retry_Limit False
+    release_namespace: "{{ item.namespace }}" 
+    create_namespace: true  
+    kubeconfig: "{{ clusters.controller.kubeconfig }}" 
+  tags:
+  - fluent-bit
+
+#For Worker
+- name: installing fluent-bit for worker
+  ignore_errors: yes
+  with_nested:
+  - "{{ monitoring_cluster.fluent_bit }}"
+  - "{{ clusters.worker }}"
+  when: item.0.workerName  ==  item.1.name 
+  kubernetes.core.helm:
+    name: fluent-bit
+    chart_ref: "{{ fluent_helm_repo_name }}/fluent-bit"
+    chart_version: "{{ item.0.chart_version }}"    
+    values:
+      config:
+        outputs: |
+          [OUTPUT]
+              Name es
+              Match *
+              Index {{ item.0.name }}
+              Host {{ item.0.elasticsearch_nodeIP }}
+              Port {{ item.0.elasticsearch_port }}
+              Logstash_Format Off
+              Retry_Limit False
+    release_namespace: "{{ item.0.namespace }}" 
+    create_namespace: true  
+    kubeconfig: "{{ item.1.kubeconfig }}"  
+  tags:
+  - fluent-bit
+
+
+###########################################
+###### Installing prometheus #############
+#########################################
+
+- name: clean previous prometheus repo
+  ignore_errors: yes
+  tags:
+  - prometheus
+  shell: helm repo remove "{{ prometheus_helm_repo_name }}"
+  
+  
+- name: Add prometheus helm repo
+  ignore_errors: yes
+  tags:
+  - prometheus
+  kubernetes.core.helm_repository:
+      name: "{{ prometheus_helm_repo_name }}"
+      repo_url: "{{ prometheus_helm_chart_url }}"
+      
+- name: update the prometheus helm charts
+  ignore_errors: yes
+  shell: helm repo update "{{ prometheus_helm_repo_name }}"
+  tags:
+  - prometheus
+
+- name: helm search repo
+  ignore_errors: yes
+  shell: helm search repo "{{ prometheus_helm_repo_name }}/"
+  register: command_output
+  tags:
+  - prometheus
+
+- debug: var=command_output.stdout_lines
+  ignore_errors: yes
+  tags:
+  - prometheus
+
+#for controller
+- name: Deploy prometheus on controller
+  ignore_errors: yes
+  loop: "{{ monitoring_cluster.prometheus }}"
+  loop_control:
+    index_var: item[]
+  when: item.workerName  ==  "controller" 
+  kubernetes.core.helm:
+    name: prometheus
+    chart_ref: "{{ prometheus_helm_repo_name }}/prometheus"
+    chart_version: "{{ item.chart_version }}"
+    values:
+      alertmanagerFiles:
+        alertmanager.yml: "{{ lookup('file', '{{ item.alertmanager_config }}') | from_yaml }}" 
+      serverFiles:
+        alerting_rules.yml: "{{ lookup('file', '{{ item.alerting_rules_config }}') | from_yaml }}"
+        prometheus.yml: "{{ lookup('file', '{{ item.prometheus_config }}') | from_yaml }}"
+      kubeStateMetrics:
+        enabled: "{{ item.kubeStateMetrics_enabled }}"
+      alertmanager:
+        enabled: "{{ item.alertmanager_enabled }}"
+        baseURL: "{{ item.alertmanager_url }}"
+        service:
+          type: "{{ item.alertmanager_service_type }}"
+          nodePort: "{{ item.alertmanager_NodePort }}"
+      server:
+        service:
+          type: "{{ item.service_type }}"
+          nodePort: "{{ item.NodePort }}"
+    release_namespace: "{{ item.namespace }}"
+    create_namespace: true  
+    kubeconfig: "{{ clusters.controller.kubeconfig }}"  
+  tags:
+  - prometheus
+
+#for worker
+- name: Deploy prometheus on worker
+  ignore_errors: yes
+  with_nested:
+  - "{{ monitoring_cluster.prometheus }}"
+  - "{{ clusters.worker }}"
+  when: item.0.workerName  ==  item.1.name 
+  kubernetes.core.helm:
+    name: prometheus
+    chart_ref: "{{ prometheus_helm_repo_name }}/prometheus"
+    chart_version: "{{ item.0.chart_version }}"
+    values:
+      alertmanagerFiles:
+        alertmanager.yml: "{{ lookup('file', '{{ item.0.alertmanager_config }}') | from_yaml }}" 
+      serverFiles:
+        alerting_rules.yml: "{{ lookup('file', '{{ item.0.alerting_rules_config }}') | from_yaml }}"
+        prometheus.yml: "{{ lookup('file', '{{ item.0.prometheus_config }}') | from_yaml }}"
+      kubeStateMetrics:
+        enabled: "{{ item.0.kubeStateMetrics_enabled }}"
+      alertmanager:
+        enabled: "{{ item.0.alertmanager_enabled }}"
+        baseURL: "{{ item.0.alertmanager_url }}"
+        service:
+          type: "{{ item.0.alertmanager_service_type }}"
+          nodePort: "{{ item.0.alertmanager_NodePort }}"
+      server:
+        service:
+          type: "{{ item.0.service_type }}"
+          nodePort: "{{ item.0.NodePort }}"
+    release_namespace: "{{ item.0.namespace }}"
+    create_namespace: true  
+    kubeconfig: "{{ item.1.kubeconfig }}" 
+  tags:
+  - prometheus
+  
+  
+###########################################
+###### Installing grafana #############
+#########################################
+
+- name: clean previous grafana repo
+  ignore_errors: yes
+  tags:
+  - grafana
+  shell: helm repo remove "{{ grafana_helm_repo_name }}"
+
+  
+- name: Add grafana helm repo
+  ignore_errors: yes
+  tags:
+  - grafana
+  kubernetes.core.helm_repository:
+      name: "{{ grafana_helm_repo_name }}"
+      repo_url: "{{ grafana_helm_chart_url }}"
+      
+- name: update the grafana helm charts
+  ignore_errors: yes
+  shell: helm repo update "{{ grafana_helm_repo_name }}"
+  tags:
+  - grafana
+
+- name: helm search 
+  ignore_errors: yes
+  shell: helm search repo "{{ grafana_helm_repo_name }}/"
+  register: command_output
+  tags:
+  - grafana
+
+- debug: var=command_output.stdout_lines
+  ignore_errors: yes
+  tags:
+  - grafana
+
+#for controller
+- name: Deploy grafana on controller
+  ignore_errors: yes
+  loop: "{{ monitoring_cluster.grafana }}"
+  loop_control:
+    index_var: item[]
+  when: item.workerName  ==  "controller" 
+  kubernetes.core.helm:
+    name: grafana
+    chart_ref: "{{ grafana_helm_repo_name }}/grafana"
+    chart_version: "{{ item.chart_version }}"
+    values:
+      service:
+        type: "{{ item.service_type }}"
+        nodePort: "{{ item.NodePort }}"
+      datasources:
+        datasources.yaml: "{{ lookup('file', '{{ item.grafana_datasources_config }}') | from_yaml }}" 
+      alerting:
+        rules.yaml: "{{ lookup('file', '{{ item.alerting_rules_config }}') | from_yaml }}" 
+    release_namespace: "{{ item.namespace }}"
+    create_namespace: true  
+    kubeconfig: "{{ clusters.controller.kubeconfig }}"   
+  tags:
+  - grafana
+
+#for worker
+- name: Deploy grafana on worker
+  ignore_errors: yes
+  with_nested:
+  - "{{ monitoring_cluster.grafana }}"
+  - "{{ clusters.worker }}"
+  when: item.0.workerName  ==  item.1.name 
+  kubernetes.core.helm:
+    name: grafana
+    chart_ref: "{{ grafana_helm_repo_name }}/grafana"
+    chart_version: "{{ item.0.chart_version }}"
+    values:
+      service:
+        type: "{{ item.0.service_type }}"
+        nodePort: "{{ item.0.NodePort }}"
+      datasources:
+        datasources.yaml: "{{ lookup('file', '{{ item.0.grafana_datasources_config }}') | from_yaml }}" 
+      alerting:
+        rules.yaml: "{{ lookup('file', '{{ item.0.alerting_rules_config }}') | from_yaml }}" 
+    release_namespace: "{{ item.0.namespace }}"
+    create_namespace: true  
+    kubeconfig: "{{ item.1.kubeconfig }}"  
+  tags:
+  - grafana
+  

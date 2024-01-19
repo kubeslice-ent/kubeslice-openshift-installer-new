@@ -1,0 +1,191 @@
+---
+# tasks file for kubeslice-worker-oss
+
+#####   Installing the kubeslice-Operator  #####
+
+#Installing Istio on worker
+
+- name: Deploy istio-base on worker cluster
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[]
+  kubernetes.core.helm:
+    name: istio-base
+    chart_ref: "{{ helm_repo_name }}/istio-base"
+    chart_version: "{{ istio_chart_version }}"
+    release_namespace: istio-system 
+    create_namespace: true
+    kubeconfig: "{{ item.kubeconfig }}"
+  tags: 
+  - istio
+    
+
+- name: Deploy istio-discovery on worker
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[]
+  kubernetes.core.helm:
+    name: istio-discovery
+    chart_ref: "{{ helm_repo_name }}/istio-discovery"
+    chart_version: "{{ istio_chart_version }}"
+    release_namespace: istio-system 
+    create_namespace: true  
+    kubeconfig: "{{ item.kubeconfig }}"  
+  tags:
+  - istio   
+
+
+
+#Adding nodeIP field in worker-secret.yaml
+#picking internal IP and replace in worker-secret file
+
+# - name: addding nodeIP filed in worker secret
+#   loop: "{{ clusters.worker }}"
+#   shell: |
+#     NODEIP=$(kubectl get nodes -o wide --kubeconfig={{ item.kubeconfig }} | grep -i worker |  awk 'FNR == 1 {print$6}')
+#     sed -i "s/\(.*nodeIp:.*\)/  nodeIp: $NODEIP/g" files/{{ item.name }}-secret.yaml
+
+# Fetching helm values 
+- shell: helm show values {{ helm_repo_name }}/kubeslice-worker --version={{ clusters.worker.0.chart_version }} > files/charts_default_values/kubeslice-worker-values.yaml
+  tags:
+  - kubeslice-worker
+- set_fact:
+    kubeslice_worker_values: "{{ lookup('file', 'files/charts_default_values/kubeslice-worker-values.yaml') | from_yaml }}"
+  tags:
+  - kubeslice-worker
+  
+### Installting kubeslice-operator on worker ###
+ 
+- name: Deploy kubeslice operator on worker
+  tags:
+  - kubeslice-worker
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[]
+  kubernetes.core.helm:
+    name: kubeslice-worker
+    chart_ref: "{{ helm_repo_name }}/kubeslice-worker"
+    chart_version: "{{ item.chart_version }}"
+    release_namespace: kubeslice-system  
+    create_namespace: true
+    values:
+      operator:
+        image: "{{ item.operator.image | default(kubeslice_worker_values.operator.image, true) }}"
+        tag: "{{ item.operator.tag | default(kubeslice_worker_values.operator.tag, true) }}"
+      cluster:
+        nodeIp: "{{ item.nodeIp }}"
+        endpoint: "{{ item.endpoint }}"
+      netop: 
+        networkInterface: "{{ item.networkInterface | default(kubeslice_worker_values.netop.networkInterface, true) }}"
+    values_files:
+      - files/{{ item.name }}-secret.yaml
+    kubeconfig: "{{ item.kubeconfig }}" 
+
+
+- name: wait 
+  ansible.builtin.pause:
+    seconds: "{{ worker_deploy_timeout }}"
+
+
+#kubeslice-system pod status
+- no_log: true
+  tags:
+  - kubeslice-worker
+  ignore_errors: yes
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[] 
+  shell: kubectl get pods -n kubeslice-system --kubeconfig="{{ item.kubeconfig }}"
+  register: worker_pod_output
+- name: Verifying kubeslice-worker pods status
+  tags:
+  - kubeslice-worker
+  ignore_errors: yes
+  debug:
+    msg: 
+    - 'pods status in Kubeslice-system Namespace in {{ item.item.name }}  ->'
+    - "{{ item.stdout_lines }}"
+  loop: "{{ worker_pod_output.results }}"
+  loop_control:
+    label: 'worker_pod_output'
+
+## Scale down and scale up kubeslice-operator deploytment
+- name: Scale down and scale up kubeslice-operator deployment
+  when: " operator_pod_restart == true "
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[] 
+  shell: kubectl rollout restart deployment kubeslice-operator -n kubeslice-system --kubeconfig "{{ item.kubeconfig }}"
+
+- name: wait 
+  when: " operator_pod_restart == true "
+  ansible.builtin.pause:
+    seconds: "{{ worker_deploy_timeout }}"
+
+# Describe the worker registration object
+- name: Checking registered clusters
+  when: " enable_debug == true "
+  tags:
+  - worker-registertion
+  shell: "kubectl get clusters -n kubeslice-{{ clusters.controller.projectNamespace }} --kubeconfig={{ clusters.controller.kubeconfig }}" 
+  register: registered_clusters
+- tags:
+  - worker-registertion
+  when: " enable_debug == true "
+  debug: var=registered_clusters.stdout_lines
+
+- name: describing registered worker clusters object
+  when: " enable_debug == true "
+  tags:
+  - worker-registertion
+  shell: "kubectl describe clusters -n kubeslice-{{ clusters.controller.projectNamespace }} --kubeconfig={{ clusters.controller.kubeconfig }}" 
+  register: registered_clusters
+- tags:
+  - worker-registertion
+  when: " enable_debug == true "
+  debug: var=registered_clusters.stdout_lines
+
+
+#kubeslice-system pod status
+- no_log: true
+  when: " operator_pod_restart == true "
+  tags:
+  - kubeslice-worker
+  ignore_errors: yes
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[] 
+  shell: kubectl get pods -n kubeslice-system --kubeconfig="{{ item.kubeconfig }}"
+  register: worker_pod_output
+- name: Verifying kubeslice-worker pods status
+  when: " operator_pod_restart == true "
+  tags:
+  - kubeslice-worker
+  ignore_errors: yes
+  debug:
+    msg: 
+    - 'pods status in Kubeslice-system Namespace in {{ item.item.name }}  ->'
+    - "{{ item.stdout_lines }}"
+  loop: "{{ worker_pod_output.results }}"
+  loop_control:
+    label: 'worker_pod_output'
+
+#describe pod in Kubeslice-system namespace
+- no_log: true
+  when: " enable_debug == true "
+  ignore_errors: yes
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[] 
+  shell: kubectl describe pods -n kubeslice-system --kubeconfig="{{ item.kubeconfig }}"
+  register: worker_pod_output
+- name: Verifying kubeslice-worker pods status
+  when: " enable_debug == true "
+  ignore_errors: yes
+  debug:
+    msg: 
+    - 'pods description in Kubeslice-system Namespace in {{ item.item.name }}  ->'
+    - "{{ item.stdout_lines }}"
+  loop: "{{ worker_pod_output.results }}"
+  loop_control:
+    label: 'worker_pod_output' 

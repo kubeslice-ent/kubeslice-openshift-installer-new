@@ -1,0 +1,9 @@
+apiVersion: controller.kubeslice.io/v1alpha1
+kind: Project
+metadata:
+  name: <Project-name>
+  namespace: kubeslice-controller
+spec:
+  serviceAccount:
+    readWrite:
+      - admin-ui

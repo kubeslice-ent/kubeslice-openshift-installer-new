@@ -1,0 +1,70 @@
+---
+# tasks file for openshift-deployement-patch
+
+- name: Apply patch to spire-csi-driver daemonsets
+  no_log: true
+  ignore_errors: yes
+  loop: "{{ clusters.worker }}"
+  when : 
+  - item.openshift_cluster == true
+  loop_control:
+    index_var: item[]
+  kubernetes.core.k8s_json_patch:
+    kind: DaemonSet
+    api_version: apps/v1
+    namespace: spire
+    name: spiffe-csi-driver
+    kubeconfig: "{{ item.kubeconfig }}"
+    patch:
+      - op: remove
+        path: /spec/template/spec/volumes/0
+      - op: remove
+        path: /spec/template/spec/containers/0/volumeMounts/3
+
+
+- name: Apply patch to spire-agent daemonsets
+  # no_log: true
+  ignore_errors: yes
+  loop: "{{ clusters.worker }}"
+  when : 
+  - item.openshift_cluster == true
+  loop_control:
+    index_var: item[]
+  kubernetes.core.k8s_json_patch:
+    kind: DaemonSet
+    api_version: apps/v1
+    namespace: spire
+    name: spire-agent
+    kubeconfig: "{{ item.kubeconfig }}"
+    patch:
+      - op: add
+        path: /spec/template/spec/containers/0/env
+        value: 
+        - name: MY_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+
+
+- name: Apply patch to forwarder-kernel daemonsets
+  no_log: true
+  ignore_errors: yes
+  loop: "{{ clusters.worker }}"
+  when : 
+  - item.openshift_cluster == true
+  loop_control:
+    index_var: item[]
+  kubernetes.core.k8s_json_patch:
+    kind: DaemonSet
+    api_version: apps/v1
+    namespace: kubeslice-system
+    name: forwarder-kernel
+    kubeconfig: "{{ item.kubeconfig }}"
+    patch:
+      - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: aveshadev/cmd-forwarder-kernel:1.0.5-7f132232
+
+- name: wait 
+  ansible.builtin.pause:
+    seconds: "{{ worker_deploy_timeout }}"

@@ -1,0 +1,13 @@
+kubeslice:
+  controller:
+    loglevel: info
+    rbacResourcePrefix: kubeslice-rbac
+    projectnsPrefix: kubeslice
+    endpoint: https://api.avesha-ocp-dc-cluster-1.dev.aveshalabs.io:6443
+
+
+# Provide your username, password & email values under imagePullSecrets to create a secret
+imagePullSecrets:
+  repository: https://index.docker.io/v1/
+  username: username
+  password: password

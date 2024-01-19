@@ -1,0 +1,15 @@
+apiVersion: 1
+datasources:
+- name: Prometheus
+  type: prometheus
+  url: http://3.86.214.228:32700
+  access: proxy
+  isDefault: true
+- name: CloudWatch
+  type: cloudwatch
+  access: proxy
+  uid: cloudwatch
+  editable: false
+  jsonData:
+    authType: default
+    defaultRegion: us-east-1

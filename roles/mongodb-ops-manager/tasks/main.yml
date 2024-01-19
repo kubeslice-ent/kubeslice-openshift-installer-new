@@ -1,0 +1,894 @@
+---
+# tasks file for mongodb-ops-manager
+
+###########################################
+###### Installing mongodb operator #############
+#########################################
+
+- name: clean previous mongodb repo
+  ignore_errors: yes
+  tags:
+  - mongodb-opsmanager
+  shell: helm repo remove "{{ mongodb_helm_repo_name }}"
+
+
+- name: Add mongodb helm repo
+  ignore_errors: yes
+  tags:
+  - mongodb-opsmanager
+  kubernetes.core.helm_repository:
+      name: "{{ mongodb_helm_repo_name }}"
+      repo_url: "{{ mongodb_helm_chart_url }}"
+      
+- name: update the mongodb helm charts
+  ignore_errors: yes
+  shell: helm repo update "{{ mongodb_helm_repo_name }}"
+  tags:
+  - mongodb-opsmanager
+
+- name: helm search 
+  ignore_errors: yes
+  shell: helm search repo "{{ mongodb_helm_repo_name }}/"
+  register: command_output
+  tags:
+  - mongodb-opsmanager
+
+- debug: var=command_output.stdout_lines
+  ignore_errors: yes
+  tags:
+  - mongodb-opsmanager
+
+- name: Deploy mongodb on worker
+  ignore_errors: yes
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  kubernetes.core.helm:
+    name: enterprise-operator
+    chart_ref: "{{ mongodb_helm_repo_name }}/enterprise-operator"
+    chart_version: "{{ item.0.chart_version }}"
+    values:
+      operator:
+        watchNamespace: "{{ item.0.operator_namespace }}"
+    release_namespace: "{{ item.0.operator_namespace }}"
+    create_namespace: true  
+    kubeconfig: "{{ item.1.kubeconfig }}"  
+  tags:
+  - mongodb-opsmanager
+
+- name: wait
+  tags:
+  - mongodb-opsmanager
+  ansible.builtin.pause:
+    seconds: "{{ chart_deploy_timeout }}"
+
+# mongodb helm installation
+- no_log: true
+  tags: 
+  - mongodb-opsmanager
+  ignore_errors: yes
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  shell: helm list -n {{ item.0.operator_namespace }} --kubeconfig="{{ item.1.kubeconfig }}" 
+  register: mongodb
+- name: fetching mongodb helm chart details
+  tags: 
+  - mongodb-opsmanager
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Verifying mongodb helm chart status in {{ item.item.0.operator_namespace }} namespace in {{ item.item.1.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ mongodb.results }}"
+  loop_control:
+    label: 'mongodb'
+  when:
+  - item.changed == true  
+  - item.item.0.mongodb_master == true 
+
+- name: wait
+  tags:
+  - mongodb-opsmanager
+  ansible.builtin.pause:
+    seconds: "{{ chart_deploy_timeout }}"
+
+# mongodb pod status 
+- no_log: true
+  tags: 
+  - mongodb-opsmanager
+  ignore_errors: yes
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  shell: kubectl get pods -n {{ item.0.operator_namespace }} --kubeconfig="{{ item.1.kubeconfig }}" 
+  register: mongodb
+- name: fetching mongodb pod details
+  tags: 
+  - mongodb-opsmanager
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Verifying mongodb pod status in {{ item.item.0.operator_namespace }} namespace in {{ item.item.1.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ mongodb.results }}"
+  loop_control:
+    label: 'mongodb'
+  when: 
+  - item.changed == true
+  - item.item.0.mongodb_master == true   
+
+# mongodb Custom Resource Definitions installation in watched namespace 
+- no_log: true
+  tags: 
+  - mongodb-opsmanager
+  ignore_errors: yes
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name
+  - item.0.mongodb_master == true 
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" -n {{ item.0.operator_namespace }} get crd | grep -E '^(mongo|ops)'  
+  register: mongodb
+- name: fetching mongodb CRD details
+  tags: 
+  - mongodb-opsmanager
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Verifying mongodb Custom Resource Definitions installed in {{ item.item.0.operator_namespace }} namespace in {{ item.item.1.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ mongodb.results }}"
+  loop_control:
+    label: 'mongodb'
+  when: 
+  - item.changed == true 
+  - item.item.0.mongodb_master == true 
+
+# mongodb service accounts created in watched namespace 
+- no_log: true
+  tags: 
+  - mongodb-opsmanager
+  ignore_errors: yes
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" -n {{ item.0.operator_namespace }} get sa | grep -E '^(mongo)'
+  register: mongodb
+- name: fetching mongodb service account details
+  tags: 
+  - mongodb-opsmanager
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Verifying mongodb service accounts created in {{ item.item.0.operator_namespace }} namespace in {{ item.item.1.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ mongodb.results }}"
+  loop_control:
+    label: 'mongodb'
+  when: 
+  - item.changed == true 
+  - item.item.0.mongodb_master == true 
+
+
+#####################################################################
+############## Installing the MongoDB Ops Manager ##################
+#####################################################################
+
+- name: Creating secret for MongoDB Ops Manager
+  ignore_errors: yes
+  no_log: true
+  tags:
+  - mongodb-opsmanager
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  shell: |
+    kubectl --kubeconfig="{{ item.1.kubeconfig }}" -n {{ item.0.operator_namespace }} create secret generic om-admin-secret \
+    --from-literal=Username="{{ item.0.username }}" \
+    --from-literal=Password="{{ item.0.password }}" \
+    --from-literal=FirstName="{{ item.0.first_name }}" \
+    --from-literal=LastName="{{ item.0.last_name }}"
+
+- name: Installing Ops Manager 
+  ignore_errors: yes
+  tags:
+  - mongodb-opsmanager
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ item.0.operator_namespace }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    definition: |     
+      apiVersion: mongodb.com/v1
+      kind: MongoDBOpsManager
+      metadata:
+        name: ops-manager
+      spec:
+        version: 6.0.5
+        # the name of the secret containing admin user credentials.
+        adminCredentials: om-admin-secret
+        externalConnectivity:
+          type: {{ item.0.Ops_manager_service_type }}
+        configuration:
+          mms.ignoreInitialUiSetup: "true"
+          automation.versions.source: mongodb
+          mms.adminEmailAddr: {{ item.0.username }}
+          mms.fromEmailAddr: {{ item.0.username }}
+          mms.replyToEmailAddr: {{ item.0.username }}
+          mms.mail.hostname: aveshasystems.com
+          mms.mail.port: "465"
+          mms.mail.ssl: "false"
+          mms.mail.transport: smtp
+        # the Replica Set backing Ops Manager.
+        applicationDatabase:
+          members: 3
+          version: 5.0.5-ent
+
+- name: wait
+  tags:
+  - mongodb-opsmanager
+  ansible.builtin.pause:
+    seconds: 300
+    
+# Ops Manager and Ops Manager MongoDB application database pods 
+- no_log: true
+  tags: 
+  - mongodb-opsmanager
+  ignore_errors: yes
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" -n {{ item.0.operator_namespace }} get pods
+  register: mongodb
+- name: fetching Ops Manager and Ops Manager MongoDB application database pods
+  tags: 
+  - mongodb-opsmanager
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Verifying Ops Manager pods in {{ item.item.0.operator_namespace }} namespace in {{ item.item.1.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ mongodb.results }}"
+  loop_control:
+    label: 'mongodb'
+  when: 
+  - item.changed == true 
+  - item.item.0.mongodb_master == true 
+
+# verifying created volumes for ops manager  
+- no_log: true
+  tags: 
+  - mongodb-opsmanager
+  ignore_errors: yes
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" -n {{ item.0.operator_namespace }} get pvc
+  register: mongodb
+- name: fetching created volumes for ops manager 
+  tags: 
+  - mongodb-opsmanager
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Verifying created volumes for ops manager in {{ item.item.0.operator_namespace }} namespace in {{ item.item.1.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ mongodb.results }}"
+  loop_control:
+    label: 'mongodb'
+  when: 
+  - item.changed == true 
+  - item.item.0.mongodb_master == true 
+
+# Verify the external service created for accessing the ops manager
+- no_log: true
+  tags: 
+  - mongodb-opsmanager
+  ignore_errors: yes
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" -n {{ item.0.operator_namespace }} get svc
+  register: mongodb
+- name: fetching the external service for accessing the ops manager
+  tags: 
+  - mongodb-opsmanager
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Verifying external service for accessing the ops manager in {{ item.item.0.operator_namespace }} namespace in {{ item.item.1.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ mongodb.results }}"
+  loop_control:
+    label: 'mongodb'
+  when: 
+  - item.changed == true 
+  - item.item.0.mongodb_master == true 
+
+
+##Ops Manager URL address if service is loadbalancer
+
+- name: wait
+  tags:
+  - mongodb-opsmanager
+  ansible.builtin.pause:
+    seconds: "{{ chart_deploy_timeout }}"
+
+- no_log: true
+  tags: 
+  - mongodb-opsmanager
+  ignore_errors: yes
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  - item.0.Ops_manager_service_type == "LoadBalancer"
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" -n {{ item.0.operator_namespace }} get svc ops-manager-svc-ext -o jsonpath='{.status.loadBalancer.ingress[0].ip}:{.spec.ports[0].port}'
+  register: mongodb
+- name: fetching Ops Manager URL address if service is loadbalancer
+  tags: 
+  - mongodb-opsmanager
+  # ignore_errors: yes
+  debug:
+    msg:
+    - 'fetching Ops Manager URL address in {{ item.item.0.operator_namespace }} namespace in {{ item.item.1.name }} cluster ->'  
+    - http://{{ item.stdout }}
+  loop: "{{ mongodb.results }}"
+  loop_control:
+    label: 'mongodb'
+  when: 
+  - item.changed == true 
+  - item.item.0.mongodb_master == true 
+  - item.item.0.Ops_manager_service_type == "LoadBalancer"
+
+- name: add patch to Ops Manager Kubernetes manifest if service is Loadbalacner
+  tags: 
+  - mongodb-opsmanager
+  ignore_errors: yes
+  loop: "{{ mongodb.results }}"
+  loop_control:
+    label: 'mongodb'
+  when: 
+  - item.changed == true 
+  - item.item.0.mongodb_master == true 
+  - item.item.0.Ops_manager_service_type == "LoadBalancer"
+  kubernetes.core.k8s:
+    state: patched
+    wait_sleep: 5
+    api: mongodb.com/v1
+    kind: MongoDBOpsManager
+    name: ops-manager
+    namespace: "{{ item.item.0.operator_namespace }}"
+    kubeconfig: "{{ item.item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    definition:
+      spec:
+        configuration:
+          mms.centralUrl: http://{{ item.stdout }}
+
+
+################################################
+##Ops Manager URL address if service is NodePort
+- tags:
+  - mongodb-opsmanager
+  no_log: false
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  - item.0.Ops_manager_service_type == "NodePort"
+  register: mongodb 
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    name: ops-manager-svc-ext
+    namespace: "{{ item.0.operator_namespace }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+
+- no_log: true
+  tags: 
+  - mongodb-opsmanager
+  ignore_errors: yes
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  - item.0.Ops_manager_service_type == "NodePort"
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: nodeip
+
+- name: fetching Ops Manager URL address if service is NodePort
+  tags:
+  - mongodb-opsmanager
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  - "{{ mongodb.results }}"
+  - "{{ nodeip.results }}"
+  loop_control:
+    label: 'mongodb'
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  - item.0.Ops_manager_service_type == "NodePort"
+  - item.0.workerName   ==  item.2.item.0.workerName 
+  - item.0.workerName  ==   item.2.item.1.name 
+  - item.0.workerName  ==   item.3.item.1.name 
+  - item.0.workerName  ==   item.3.item.0.workerName 
+  debug:
+    msg:
+    - 'fetching Ops Manager URL address in {{ item.0.operator_namespace }} namespace in {{ item.1.name }} cluster ->'  
+    - http://{{ item.1.nodeIp | default(item.3.stdout, true) }}:{{ item.2.resources.0.spec.ports.0.nodePort }} 
+
+- name: add patch to Ops Manager Kubernetes manifest  if service is NodePort
+  ignore_errors: yes
+  tags:
+  - mongodb-opsmanager
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  - "{{ mongodb.results }}"
+  - "{{ nodeip.results }}"
+  loop_control:
+    label: 'mongodb'
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  - item.0.Ops_manager_service_type == "NodePort"
+  - item.0.workerName   ==  item.2.item.0.workerName 
+  - item.0.workerName  ==   item.2.item.1.name 
+  - item.0.workerName  ==   item.3.item.1.name 
+  - item.0.workerName  ==   item.3.item.0.workerName
+  kubernetes.core.k8s:
+    state: patched
+    wait_sleep: 5
+    api: mongodb.com/v1
+    kind: MongoDBOpsManager
+    name: ops-manager
+    namespace: "{{ item.0.operator_namespace }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    definition:
+      spec:
+        configuration:
+          mms.centralUrl: http://{{ item.1.nodeIp | default(item.3.stdout, true) }}:{{ item.2.resources.0.spec.ports.0.nodePort }}
+
+#############################################################################################
+########## Deploying MongoDB Across Multiple Kubernetes Clusters With MongoDBMulti ###############
+###############################################################################################
+
+- name: Creating namespace for MongoDBMulti
+  ignore_errors: yes
+  tags:
+  - mongodb-opsmanager
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  kubernetes.core.k8s:
+    name: "{{ item.0.namespace }}"
+    wait_sleep: 5
+    api_version: v1
+    kind: Namespace
+    state: present
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+  when: item.0.workerName  ==  item.1.name 
+
+# - name: Git checkout
+#   tags: mongodb-opsmanager
+#   ansible.builtin.git:
+#     repo: 'https://github.com/mongodb/mongodb-enterprise-kubernetes.git'
+#     dest: files/mongodb
+
+# Mergining kubeconfig and setting expport kubeconfig
+- tags: mongodb-opsmanager
+  shell: |
+    kubectl config view --flatten=true > files/kubeconfig/merged.config
+  register: echo
+  environment:
+    KUBECONFIG: "{{ clusters.worker.0.kubeconfig }}:{{ clusters.worker.1.kubeconfig }}:{{ clusters.worker.2.kubeconfig }}"
+
+- tags: mongodb-opsmanager
+  shell: |
+    kubectx 
+  register: merged
+  environment:
+    KUBECONFIG: files/kubeconfig/merged.config
+
+- tags: mongodb-opsmanager
+  shell: |
+    kubectx | awk 'FNR == 1'
+  register: master_cluster
+  environment:
+    KUBECONFIG: "{{ clusters.worker.0.kubeconfig }}"
+- tags: mongodb-opsmanager
+  shell: |
+    kubectx | awk 'FNR == 1'
+  register: first_cluster
+  environment:
+    KUBECONFIG: "{{ clusters.worker.0.kubeconfig }}"
+- tags: mongodb-opsmanager
+  shell: |
+    kubectx | awk 'FNR == 1'
+  register: second_cluster
+  environment:
+    KUBECONFIG: "{{ clusters.worker.1.kubeconfig }}"
+- tags: mongodb-opsmanager
+  shell: |
+    kubectx | awk 'FNR == 1'
+  register: third_cluster
+  environment:
+    KUBECONFIG: "{{ clusters.worker.2.kubeconfig }}"
+
+- tags: mongodb-opsmanager
+  debug:
+    msg: 
+    - "{{ master_cluster.stdout }}"  
+    - "{{ first_cluster.stdout }}" 
+    - "{{ second_cluster.stdout }}" 
+    - "{{ third_cluster.stdout }}" 
+
+
+- name: downloading mongodb-enterprise-kubernetes tar file
+  tags: mongodb-opsmanager
+  get_url: 
+    url: "https://kubeslice.aveshalabs.io/repository/avesha-file-store/devops/mongodb-enterprise-kubernetes.tar.xz" 
+    dest: files/mongodb/
+
+- name: Extract mongodb-enterprise-kubernetes
+  tags: mongodb-opsmanager
+  shell: tar -xf files/mongodb/mongodb-enterprise-kubernetes.tar.xz -C files/mongodb/
+  # ansible.builtin.unarchive:
+  #   src: files/mongodb/mongodb-enterprise-kubernetes.tar.xz
+  #   dest: files/mongodb/mongodb-enterprise-kubernetes
+
+- tags: 
+  - mongodb-opsmanager
+  ignore_errors: yes
+  register: go_result
+  shell: |
+    cd files/mongodb/mongodb-enterprise-kubernetes/tools/multicluster/
+    ../../../go/bin/go run main.go setup \
+      -central-cluster={{ master_cluster.stdout }} \
+      -member-clusters={{ first_cluster.stdout }},{{ second_cluster.stdout }},{{ third_cluster.stdout }} \
+      -member-cluster-namespace={{ mongodb_cluster.0.namespace }} \
+      -central-cluster-namespace={{ mongodb_cluster.0.namespace }}
+  environment:
+    KUBECONFIG: ../../../../kubeconfig/merged.config 
+
+- tags: mongodb-opsmanager
+  ignore_errors: yes
+  debug:
+    msg: 
+    - "{{ go_result.stdout }}"  
+
+- name: Creating secret mongodb-enterprise-operator-multi-cluster
+  ignore_errors: yes
+  tags:
+  - mongodb-opsmanager
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ item.0.namespace }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    definition: |     
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: mongodb-enterprise-operator-multi-cluster-tokens
+        annotations:
+          kubernetes.io/service-account.name: mongodb-enterprise-operator-multi-cluster
+      type: kubernetes.io/service-account-token
+      
+- tags: 
+  - mongodb-opsmanager
+  register: go_result
+  shell: |
+    cd files/mongodb/mongodb-enterprise-kubernetes/tools/multicluster/
+    ../../../go/bin/go run main.go setup \
+      -central-cluster={{ master_cluster.stdout }} \
+      -member-clusters={{ first_cluster.stdout }},{{ second_cluster.stdout }},{{ third_cluster.stdout }} \
+      -member-cluster-namespace={{ mongodb_cluster.0.namespace }} \
+      -central-cluster-namespace={{ mongodb_cluster.0.namespace }}
+  environment:
+    KUBECONFIG: ../../../../kubeconfig/merged.config 
+
+- tags: mongodb-opsmanager
+  debug:
+    msg: 
+    - "{{ go_result.stdout }}" 
+
+# Verifing the service account creation in all cluster
+- no_log: true
+  tags: 
+  - mongodb-opsmanager
+  ignore_errors: yes
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" -n {{ item.0.namespace }} get sa
+  register: mongodb
+- name: fetching service account created in all clusters
+  tags: 
+  - mongodb-opsmanager
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Verifying service account in {{ item.item.0.namespace }} namespace in {{ item.item.1.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ mongodb.results }}"
+  loop_control:
+    label: 'mongodb'
+  when: 
+  - item.changed == true 
+
+# Installing the MongoDB multi cluster Kubernetes operator
+- name: Deploy mongodb on worker
+  tags:
+  - mongodb-opsmanager
+  ignore_errors: yes
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  kubernetes.core.helm:
+    state: present
+    name: mongodb-enterprise-operator-multi-cluster
+    chart_ref: "{{ mongodb_helm_repo_name }}/enterprise-operator"
+    chart_version: "{{ item.0.chart_version }}"
+    release_namespace: "{{ item.0.namespace }}"
+    create_namespace: true  
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    values:
+      namespace: "{{ item.0.namespace }}"
+      multiCluster: 
+        clusters: "{{ first_cluster.stdout }},{{ second_cluster.stdout }},{{ third_cluster.stdout }}"  
+        performFailover: false 
+      operator:
+        name: mongodb-enterprise-operator-multi-cluster
+        createOperatorServiceAccount: false
+
+          
+
+- name: wait
+  tags:
+  - mongodb-opsmanager
+  ansible.builtin.pause:
+    seconds: "{{ chart_deploy_timeout }}"
+
+# mongodb pod status 
+- no_log: true
+  tags: 
+  - mongodb-opsmanager
+  ignore_errors: yes
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  shell: kubectl get pods -n {{ item.0.namespace }} --kubeconfig="{{ item.1.kubeconfig }}" 
+  register: mongodb
+- name: Fetching MongoDB Enterprise Operator multi cluster pod details
+  tags: 
+  - mongodb-opsmanager
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Verifying mongoDB Enterprise Operator multi cluster pod status in {{ item.item.0.namespace }} namespace in {{ item.item.1.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ mongodb.results }}"
+  loop_control:
+    label: 'mongodb'
+  when: 
+  - item.changed == true
+  - item.item.0.mongodb_master == true   
+
+#  MongoDB Multi CRD
+- no_log: true
+  tags: 
+  - mongodb-opsmanager
+  ignore_errors: yes
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}"  get crd -n {{ item.0.namespace }} | grep multi
+  register: mongodb
+- name: Fetching mongodb Multi CRD
+  tags: 
+  - mongodb-opsmanager
+  ignore_errors: yes
+  debug:
+    msg:
+    - 'Verifying Fetching mongodb Multi CRD status in {{ item.item.0.namespace }} namespace in {{ item.item.1.name }} cluster ->'  
+    - "{{ item.stdout_lines }}"
+  loop: "{{ mongodb.results }}"
+  loop_control:
+    label: 'mongodb'
+  when: 
+  - item.changed == true
+  - item.item.0.mongodb_master == true   
+  
+## configuring the required service accounts for each member cluster.
+- name: configuring required service accounts for each member cluster
+  no_log: true
+  tags: 
+  - mongodb-opsmanager
+  shell: |
+    helm --kube-context {{ master_cluster.stdout }} template --show-only templates/database-roles.yaml mongodb/enterprise-operator --namespace "mongodb" | kubectl apply -f - --context={{ first_cluster.stdout }} --namespace mongodb;
+    helm --kube-context {{ master_cluster.stdout }} template --show-only templates/database-roles.yaml mongodb/enterprise-operator --namespace "mongodb" | kubectl apply -f - --context={{ second_cluster.stdout }} --namespace mongodb;
+    helm --kube-context {{ master_cluster.stdout }} template --show-only templates/database-roles.yaml mongodb/enterprise-operator --namespace "mongodb" | kubectl apply -f - --context={{ third_cluster.stdout }} --namespace mongodb;
+  register: helm_template
+  environment:
+    KUBECONFIG: files/kubeconfig/merged.config  
+
+- tags: mongodb-opsmanager
+  debug:
+    msg: 
+    - "{{ helm_template.stdout }}"  
+
+
+#################################################################################################
+############# Login into ops manager and generate public and private API keys ########################################
+################################################################################################
+
+
+##Ops Manager URL address if service is loadbalancer
+- no_log: true
+  tags: 
+  - mongodb-opsmanager
+  # ignore_errors: yes
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  - item.0.Ops_manager_service_type == "LoadBalancer"
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" -n {{ item.0.operator_namespace }} get svc ops-manager-svc-ext -o jsonpath='{.status.loadBalancer.ingress[0].ip}:{.spec.ports[0].port}'
+  register: mongodb
+- name: fetching Ops Manager URL address if service is loadbalancer
+  tags: 
+  - mongodb-opsmanager
+  # ignore_errors: yes
+  debug:
+    msg:
+    - 'This is your Ops-manager URL from {{ item.item.1.name }} cluster ->'
+    - http://{{ item.stdout }}
+    - Username ->  {{ item.0.username }}
+    - Password ->  {{ item.0.password }}  
+    - Login Into Ops-manager UI using your Username/pass and generate public and private API keys and  don't forget to add your current IP address to API Access List.
+    - "Step 1:  log in to the Ops Manager and go to ops-manager-db organization"
+    - "Step 2:  Click Access Manager on the left-hand side, and choose Organization Access then choose Create API KEY  in the top right corner"
+    - "Step 3:  The key must have a name (example avesha) and permissions must be set to Organization Owner"
+    - "Step 4: When you click Next, you will see your Public Keyand Private Key. Copy those values and save them, you will not be able to see the private key again. Also, make sure you added your current IP address to the API access list."
+    - "Step 5: Click on API Access List entry and choose Current IP option and click on save "
+    - "Step 6: You also need an Organization ID. You can see the organization ID to click in the settings above Access manager left side"
+    - "Step 7: Get the Organization ID and public and private keys generated by the API key creator and paste them into insta-vars.yaml file as an input"
+    - "Step 8: After getting all the values ,uncomment the monodb-replicaset role from mongodb-installation.yaml file and Re-run the script again"
+  loop: "{{ mongodb.results }}"
+  loop_control:
+    label: 'mongodb'
+  when: 
+  - item.changed == true 
+  - item.item.0.mongodb_master == true 
+  - item.item.0.Ops_manager_service_type == "LoadBalancer"
+
+##Ops Manager URL address if service is NodePort
+- tags:
+  - mongodb-opsmanager
+  no_log: false
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  - item.0.Ops_manager_service_type == "NodePort"
+  register: mongodb 
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    name: ops-manager-svc-ext
+    namespace: "{{ item.0.operator_namespace }}"
+    kubeconfig: "{{ item.1.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+
+- no_log: true
+  tags: 
+  - mongodb-opsmanager
+  ignore_errors: yes
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  - item.0.Ops_manager_service_type == "NodePort"
+  shell: kubectl --kubeconfig="{{ item.1.kubeconfig }}" get nodes -o wide | grep -i Ready |  awk 'FNR == 1 {print$7}' 
+  register: nodeip
+
+- name: fetching Ops Manager URL address if service is NodePort
+  tags:
+  - mongodb-opsmanager
+  with_nested:
+  - "{{ mongodb_cluster }}"
+  - "{{ clusters.worker }}"
+  - "{{ mongodb.results }}"
+  - "{{ nodeip.results }}"
+  loop_control:
+    label: 'mongodb'
+  when: 
+  - item.0.workerName  ==  item.1.name 
+  - item.0.mongodb_master == true 
+  - item.0.Ops_manager_service_type == "NodePort"
+  - item.0.workerName   ==  item.2.item.0.workerName 
+  - item.0.workerName  ==   item.2.item.1.name 
+  - item.0.workerName  ==   item.3.item.1.name 
+  - item.0.workerName  ==   item.3.item.0.workerName 
+  debug:
+    msg:
+    - 'This is your Ops-manager URL from {{ item.1.name }} cluster ->'
+    - http://{{ item.1.nodeIp | default(item.3.stdout, true) }}:{{ item.2.resources.0.spec.ports.0.nodePort }} 
+    - Username ->  {{ item.0.username }}
+    - Password ->  {{ item.0.password }}    
+    - Login Into Ops-manager UI using your Username/pass and generate public and private API keys and  don't forget to add your current IP address to API Access List.
+    - "Step 1:  log in to the Ops Manager and go to ops-manager-db organization"
+    - "Step 2:  Click Access Manager on the left-hand side, and choose Organization Access then choose Create API KEY  in the top right corner"
+    - "Step 3:  The key must have a name (example avesha) and permissions must be set to Organization Owner"
+    - "Step 4: When you click Next, you will see your Public Keyand Private Key. Copy those values and save them, you will not be able to see the private key again. Also, make sure you added your current IP address to the API access list."
+    - "Step 5: Click on API Access List entry and choose Current IP option and click on save "
+    - "Step 6: You also need an Organization ID. You can see the organization ID to click in the settings above Access manager left side"
+    - "Step 7: Get the Organization ID and public and private keys generated by the API key creator and paste them into insta-vars.yaml file as an input"
+    - "Step 8: After getting all the values ,uncomment the monodb-replicaset role from mongodb-installation.yaml file and Re-run the script again"

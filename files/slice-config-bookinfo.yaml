@@ -1,0 +1,32 @@
+apiVersion: controller.kubeslice.io/v1alpha1
+kind: SliceConfig
+metadata:
+  name: bookinfo-slice
+  namespace: kubeslice-avesha
+spec:
+  sliceSubnet: 172.20.0.0/16
+  sliceType: Application
+  sliceGatewayProvider:
+    sliceGatewayType: OpenVPN
+    sliceCaType: Local
+  sliceIpamType: Local
+  clusters:
+    - worker-sno-1
+    - worker-sno-2
+  qosProfileDetails:
+    queueType: HTB
+    priority: 1
+    tcType: BANDWIDTH_CONTROL
+    bandwidthCeilingKbps: 5120
+    bandwidthGuaranteedKbps: 2560
+    dscpClass: AF11
+  namespaceIsolationProfile:  
+    applicationNamespaces:
+     - namespace: bookinfo
+       clusters:
+       - '*'            
+    isolationEnabled: false
+    allowedNamespaces:
+      - namespace: kube-system
+        clusters:
+          - "*"

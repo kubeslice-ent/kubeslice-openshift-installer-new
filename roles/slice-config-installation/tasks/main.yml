@@ -1,0 +1,92 @@
+---
+# tasks file for slice-config-installation
+
+#####   Installing slice-config #####
+
+
+- name: creating sliceconfig 
+  tags:
+  - sliceconfig
+  loop: "{{ slices }}"
+  loop_control:
+    index_var: item[]
+  kubernetes.core.k8s:
+    state: present
+    namespace: kubeslice-{{ clusters.controller.projectNamespace }}
+    kubeconfig: "{{ clusters.controller.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+    definition: |
+      apiVersion: controller.kubeslice.io/v1alpha1
+      kind: SliceConfig
+      metadata: 
+        name: {{ item.name }}
+        namespace: kubeslice-{{ clusters.controller.projectNamespace }}
+      spec:
+        sliceSubnet: {{ item.sliceSubnet }}
+        sliceType: Application
+        sliceGatewayProvider:
+          sliceGatewayType: OpenVPN
+          sliceGatewayServiceType: {{ item.sliceGatewayServiceType }}  
+          sliceCaType: Local
+        sliceIpamType: Local
+        rotationInterval: 60
+        clusters: {{ item.workerClusters }}
+        qosProfileDetails:
+          queueType: HTB
+          priority: {{ item.priority }}                     #keep integer values from 0 to 3
+          tcType: BANDWIDTH_CONTROL
+          bandwidthCeilingKbps: {{ item.bandwidthCeilingKbps }}
+          bandwidthGuaranteedKbps: {{ item.bandwidthGuaranteedKbps }}
+          dscpClass: AF11
+        namespaceIsolationProfile:
+          applicationNamespaces: {{ item.applicationNamespaces }}
+          isolationEnabled: false                   
+          allowedNamespaces:
+          - namespace: kube-system
+            clusters:
+            - '*'
+        externalGatewayConfig: {{ item.externalGatewayConfig }}  
+
+- name: wait 
+  tags: 
+  - sliceconfig
+  ansible.builtin.pause:
+    seconds: "{{ slice_deploy_timeout }}"
+
+### Verifying sliceconfig
+
+- shell: "kubectl get sliceconfig -n kubeslice-{{ clusters.controller.projectNamespace }} --kubeconfig={{ clusters.controller.kubeconfig }}" 
+  tags: 
+  - sliceconfig
+  ignore_errors: yes
+  register: sliceconfig
+- name: Verifying sliceconfig in controller status
+  tags: 
+  - sliceconfig
+  ignore_errors: yes
+  debug: 
+    msg: 
+    - sliceconfig created in controller cluster ->
+    - "{{sliceconfig.stdout_lines}}"
+
+#kubeslice-system pod status
+- no_log: true
+  tags: 
+  - kubeslice-worker
+  ignore_errors: yes
+  loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[] 
+  shell: kubectl get pods -n kubeslice-system --kubeconfig="{{ item.kubeconfig }}"
+  register: worker_pod_output
+- name: Verifying kubeslice-worker pods status
+  tags: 
+  - kubeslice-worker
+  ignore_errors: yes
+  debug:
+    msg: 
+    - 'pods status in Kubeslice-system Namespace in {{ item.item.name }}  ->'
+    - "{{ item.stdout_lines }}"
+  loop: "{{ worker_pod_output.results }}"
+  loop_control:
+    label: 'worker_pod_output'

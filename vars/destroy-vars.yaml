@@ -1,0 +1,231 @@
+
+#####################################################################
+##### THIS YAML FILE IS ONLY USED FOR UNINSTALLATION PURPOSE  #######
+#####################################################################
+
+## global_variable
+chart_deploy_timeout: 20            # It will take this timeout period as a wait-time after deploying all helm charts   
+worker_deploy_timeout: 180          # It will take this timeout period as a wait-time after deploying Kubeslice-worker
+slice_deploy_timeout: 200           # It will take this timeout period as a wait-time after deploying sliceconfig
+bookinfo_loadgenerator_value: 100   # it will take this value as a bookinfo load generator user value
+validate_certs: yes                 # It will verify the kubernetes API server’s SSL certificates, if you are using local certificates make this value 'no'
+iperf_testing_BW: 10Mb              # The Bandwidth we use to test the iperf-connectivity 
+operator_pod_restart: false         # If true, it will restart the kubeslice-operator pod after kubeslice-worker installation          
+enable_debug: false                 # If true ,it will describe all nodes and the pods from Controller,UI,Worker and all Deployed application
+istio_chart_version:                #If you keep that value null it will take the latest istio chart version
+
+### Required cluster details ###
+#Note- If you have multiple worker clusters you can add your worker cluster details in below format ##
+
+clusters:
+  controller:
+    kubeconfig: ./files/kubeconfig/dev-1.yaml	
+    projectNamespace: avesha  
+    openshift_cluster: false
+    chart_version:                #If you keep that value null it will take the latest chart version    
+    endpoint:                     #If you keep that value null it will fetch default endpoint from cluster
+    image:                        #If null it will take the latest values
+    tag:                          #If null it will take the latest values
+    Kubeslice_ui:
+      chart_version:              #If you keep that value null it will take the latest chart version
+      service_type:               #If null it will take "Loadbalancer" as a default value
+      image:                      #If null it will take the latest values
+      tag:                        #If null it will take the latest values
+
+  worker:
+  - name: worker-1
+    kubeconfig: ./files/kubeconfig/dev-1.yaml
+    openshift_cluster: false
+    chart_version:              #If you keep that value null it will take the latest chart version
+    nodeIp:                     #If you are using cloud clusters no need to provide worker NodeIP only provide NodeIP in Kind and DC clusters
+    endpoint:                   #Default value is Null
+    networkInterface:           #Default value is eth0
+    metrics_insecure:           #Default value is false
+    operator:
+      image:                    #If null it will take the latest values
+      tag:                      #If null it will take the latest values
+
+  - name: worker-2
+    kubeconfig: ./files/kubeconfig/dev-2.yaml
+    openshift_cluster: false
+    chart_version:              #If you keep that value null it will take the latest chart version
+    nodeIp:                     #If you are using cloud clusters no need to provide worker NodeIP only provide NodeIP in Kind and DC clusters
+    endpoint:                   #Default value is Null
+    networkInterface:           #Default value is eth0
+    metrics_insecure:           #Default value is false
+    operator:
+      image:                    #If null it will take the latest values
+      tag:                      #If null it will take the latest values
+
+### Slice config creation ###
+slices:
+  - name: iperf-slice
+    workerClusters:
+      - worker-1
+      - worker-2
+    sliceSubnet: 192.168.0.0/16
+    sliceGatewayServiceType: 
+      # - cluster: worker-1
+      #   type: LoadBalancer   
+      #   protocol: TCP     
+      # - cluster: worker-2
+      #   type: LoadBalancer   
+      #   protocol: TCP  
+    priority: 3 
+    bandwidthCeilingKbps: 20480
+    bandwidthGuaranteedKbps: 10240
+    applicationNamespaces:
+    - namespace: iperf
+      clusters:
+      - worker-1
+      - worker-2    
+    externalGatewayConfig:       # If you dont want to deploy slice with externalGatewayConfig keep this value blank 
+
+  - name: boutique-slice
+    workerClusters:
+      - worker-1
+      - worker-2
+    sliceSubnet: 192.168.0.0/16
+    sliceGatewayServiceType: 
+      # - cluster: worker-1
+      #   type: LoadBalancer   
+      #   protocol: TCP     
+      # - cluster: worker-2
+      #   type: LoadBalancer   
+      #   protocol: TCP  
+    priority: 3 
+    bandwidthCeilingKbps: 20480
+    bandwidthGuaranteedKbps: 10240
+    applicationNamespaces:
+    - namespace: boutique
+      clusters:
+      - worker-1
+      - worker-2    
+    externalGatewayConfig:       # If you dont want to deploy slice with externalGatewayConfig keep this value blank
+
+## Application Deployment and Service_Export creation ##
+onboardAppsToSlices:
+  iperfDeployment:
+    - name: worker-1
+      iperfClient: true       #iperf-sleep
+      iperfServer: false      #iperf-server
+      applicationNs: iperf
+    - name: worker-2
+      iperfClient: false      #iperf-sleep
+      iperfServer: true       #iperf-server
+      applicationNs: iperf
+
+  boutiqueDeployment:
+    - name: worker-1
+      boutiqueClient: false       #boutique-frontendServices, productcatalogService, recommendationService, shippingService
+      boutiqueServer: true     #boutique-adService,currencyService,emailService,paymentService
+      applicationNs: boutique
+    - name: worker-2
+      boutiqueClient: true     #boutique-frontendServices, productcatalogService, recommendationService, shippingService
+      boutiqueServer: false      #boutique-adService,currencyService,emailService,paymentService
+      applicationNs: boutique
+
+### Service_Export ###
+serviceExport:
+  - name: iperf-server         #Iperf-application serviceexport
+    workerName: worker-2        
+    sliceName: iperf-slice
+    applicationNs: iperf
+    ingressEnabled: false
+    ports:
+    - name: tcp
+      containerPort: 5201
+      protocol: TCP
+    labels:
+      app: iperf-server
+
+  - name: ad-service           #boutique-application serviceexport
+    workerName: worker-1
+    sliceName: boutique-slice
+    applicationNs: boutique
+    ingressEnabled: false
+    ports:
+    - name: http
+      containerPort: 9555
+      protocol: TCP
+    labels:
+      app: adservice
+      name: kubeslice-demo
+
+  - name: currency-service     #boutique-application serviceexport
+    workerName: worker-1
+    sliceName: boutique-slice
+    applicationNs: boutique
+    ingressEnabled: false
+    ports:
+    - name: http
+      containerPort: 7000
+      protocol: TCP
+    labels:
+      app: currencyservice
+      name: kubeslice-demo
+
+  - name: payment-service       #boutique-application serviceexport
+    workerName: worker-1
+    sliceName: boutique-slice
+    applicationNs: boutique
+    ingressEnabled: false
+    ports:
+    - name: http
+      containerPort: 50051
+      protocol: TCP
+    labels:
+      app: paymentservice
+      name: kubeslice-demo
+
+  - name: email-service        #boutique-application serviceexport
+    workerName: worker-1
+    sliceName: boutique-slice
+    applicationNs: boutique
+    ingressEnabled: false
+    ports:
+    - name: http
+      containerPort: 5000
+      protocol: TCP
+    labels:
+      app: emailservice
+      name: kubeslice-demo    
+
+  - name: recommendation-service       #boutique-application serviceexport
+    workerName: worker-2
+    sliceName: boutique-slice
+    applicationNs: boutique
+    ingressEnabled: false
+    ports:
+    - name: http
+      containerPort: 8080
+      protocol: TCP
+    labels:
+      app: recommendationservice
+      name: kubeslice-demo
+
+  - name: shipping-service       #boutique-application serviceexport
+    workerName: worker-2
+    sliceName: boutique-slice
+    applicationNs: boutique
+    ingressEnabled: false
+    ports:
+    - name: http
+      containerPort: 50051
+      protocol: TCP
+    labels:
+      app: shippingservice
+      name: kubeslice-demo
+
+  - name: productcatalog-service       #boutique-application serviceexport
+    workerName: worker-2
+    sliceName: boutique-slice
+    applicationNs: boutique
+    ingressEnabled: false
+    ports:
+    - name: http
+      containerPort: 3550
+      protocol: TCP
+    labels:
+      app: productcatalogservice
+      name: kubeslice-demo

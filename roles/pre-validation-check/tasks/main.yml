@@ -1,0 +1,30 @@
+---
+# tasks file for pre-validation-check
+
+# Validations checks for controller cluster #
+
+- name: validating controller Cluster 
+  kubernetes.core.k8s_cluster_info:
+    kubeconfig: "{{ clusters.controller.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+  register: controller_host
+- debug:
+    msg: The controller cluster Kubernetes control plane is running at "{{ controller_host.connection.host }}"
+- debug: 
+    msg: 'The controller cluster k8s version is "{{ controller_host.version.server.kubernetes.gitVersion }}"'
+
+
+- loop: "{{ clusters.worker }}"
+  loop_control:
+    index_var: item[]
+  kubernetes.core.k8s_cluster_info:
+    kubeconfig: "{{ item.kubeconfig }}"
+    validate_certs: "{{ validate_certs }}"
+  register: worker_version
+- name: validating worker Cluster 
+  loop: "{{ worker_version.results }}"
+  loop_control:
+    label: 'worker_version'
+  debug: 
+    msg: 
+    - 'The {{item.item.name}} cluster k8s version is "{{ item.version.server.kubernetes.gitVersion }}"'
