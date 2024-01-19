@@ -140,7 +140,7 @@ kind: Service
 metadata:
   name: frontend-external
 spec:
-  type: NodePort
+  type: LoadBalancer
   selector:
     app: frontend
   ports:
