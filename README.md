@@ -105,6 +105,9 @@ slices:
       - worker-2
     sliceSubnet: 192.168.0.0/16
     sliceGatewayServiceType:  
+      # - cluster: worker-1
+      #   type: LoadBalancer   
+      #   protocol: TCP  
     priority: 3 
     bandwidthCeilingKbps: 20480
     bandwidthGuaranteedKbps: 10240
@@ -115,6 +118,27 @@ slices:
       - worker-2    
     externalGatewayConfig:       # If you dont want to deploy slice with externalGatewayConfig keep this value blank 
 
+  - name: boutique-slice
+    workerClusters:
+      - worker-1
+      - worker-2
+    sliceSubnet: 192.168.0.0/16
+    sliceGatewayServiceType: 
+      # - cluster: worker-1
+      #   type: LoadBalancer   
+      #   protocol: TCP      
+    priority: 3 
+    bandwidthCeilingKbps: 20480
+    bandwidthGuaranteedKbps: 10240
+    applicationNamespaces:
+    - namespace: boutique
+      clusters:
+      - worker-1
+      - worker-2    
+    externalGatewayConfig:       # If you dont want to deploy slice with externalGatewayConfig keep this value blank
+
+
+## Application Deployment and Service_Export creation ##
 onboardAppsToSlices:
   iperfDeployment:
     - name: worker-1
@@ -126,18 +150,120 @@ onboardAppsToSlices:
       iperfServer: true       #iperf-server
       applicationNs: iperf
 
+  boutiqueDeployment:
+    - name: worker-1
+      boutiqueClient: false       #boutique-frontendServices, productcatalogService, recommendationService, shippingService
+      boutiqueServer: true     #boutique-adService,currencyService,emailService,paymentService
+      applicationNs: boutique
+    - name: worker-2
+      boutiqueClient: true     #boutique-frontendServices, productcatalogService, recommendationService, shippingService
+      boutiqueServer: false      #boutique-adService,currencyService,emailService,paymentService
+      applicationNs: boutique
+
+### Service_Export ###
 serviceExport:
-  - name: iperf-server
-    workerName: worker-2
+  - name: iperf-server         #Iperf-application serviceexport
+    workerName: worker-2        
     sliceName: iperf-slice
     applicationNs: iperf
     ingressEnabled: false
     ports:
     - name: tcp
-      containerPort: 9555
+      containerPort: 5201
       protocol: TCP
     labels:
       app: iperf-server
+
+  - name: ad-service           #boutique-application serviceexport
+    workerName: worker-1
+    sliceName: boutique-slice
+    applicationNs: boutique
+    ingressEnabled: false
+    ports:
+    - name: http
+      containerPort: 9555
+      protocol: TCP
+    labels:
+      app: adservice
+      name: kubeslice-demo
+
+  - name: currency-service     #boutique-application serviceexport
+    workerName: worker-1
+    sliceName: boutique-slice
+    applicationNs: boutique
+    ingressEnabled: false
+    ports:
+    - name: http
+      containerPort: 7000
+      protocol: TCP
+    labels:
+      app: currencyservice
+      name: kubeslice-demo
+
+  - name: payment-service       #boutique-application serviceexport
+    workerName: worker-1
+    sliceName: boutique-slice
+    applicationNs: boutique
+    ingressEnabled: false
+    ports:
+    - name: http
+      containerPort: 50051
+      protocol: TCP
+    labels:
+      app: paymentservice
+      name: kubeslice-demo
+
+  - name: email-service        #boutique-application serviceexport
+    workerName: worker-1
+    sliceName: boutique-slice
+    applicationNs: boutique
+    ingressEnabled: false
+    ports:
+    - name: http
+      containerPort: 5000
+      protocol: TCP
+    labels:
+      app: emailservice
+      name: kubeslice-demo    
+
+  - name: recommendation-service       #boutique-application serviceexport
+    workerName: worker-2
+    sliceName: boutique-slice
+    applicationNs: boutique
+    ingressEnabled: false
+    ports:
+    - name: http
+      containerPort: 8080
+      protocol: TCP
+    labels:
+      app: recommendationservice
+      name: kubeslice-demo
+
+  - name: shipping-service       #boutique-application serviceexport
+    workerName: worker-2
+    sliceName: boutique-slice
+    applicationNs: boutique
+    ingressEnabled: false
+    ports:
+    - name: http
+      containerPort: 50051
+      protocol: TCP
+    labels:
+      app: shippingservice
+      name: kubeslice-demo
+
+  - name: productcatalog-service       #boutique-application serviceexport
+    workerName: worker-2
+    sliceName: boutique-slice
+    applicationNs: boutique
+    ingressEnabled: false
+    ports:
+    - name: http
+      containerPort: 3550
+      protocol: TCP
+    labels:
+      app: productcatalogservice
+      name: kubeslice-demo
 
 ### Monitoring clusters  ###
 monitoring_cluster:

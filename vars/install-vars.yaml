@@ -1,7 +1,7 @@
 ---
 ### Helm charts details ###
 helm_repo_name: kubeslice
-helm_chart_url: https://kubeslice.aveshalabs.io/repository/kubeslice-helm-ent-stage
+helm_chart_url: https://kubeslice.aveshalabs.io/repository/kubeslice-helm-ent-prod
 helm_repo_username: ""
 helm_repo_password: ""
 
