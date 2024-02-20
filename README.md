@@ -317,7 +317,7 @@ After providing all the required values in the file you can review your installa
      - kubeslice-controller-ent             # This will deploy Controller with UI and create project        
      - worker-registration-ent              # This will register workercluster with controller and genrate worker-secret file 
      - kubeslice-worker-ent                 # This will deploy istio,Isitod,prometheus and Worker-operator Charts
-     - openshift-deployement-patch          # This is patching for openshif related clusters
+     - openshift-deployement-patch          # This is patching for openshift related clusters
 
 ###### Slice-config and App deployment ######    
      - slice-config-installation            # It will Create Sliceconfig only
